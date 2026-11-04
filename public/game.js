@@ -1,8 +1,10 @@
 'use strict';
 
 /* ---------- Константы баланса ---------- */
-const START_LIVES = 5;
-const MAX_LIVES = 5;
+// жизни считаем в половинках сердца: 10 = 5 сердец, попадание бага на прод отнимает 1 (полсердца)
+const START_LIVES = 10;
+const MAX_LIVES = 10;
+const ALFA_HEAL = 2; // Альфа-Бонус возвращает целое сердце
 const HIT_RADIUS_BONUS = 20;
 const GOLDEN_BONUS = 5;
 const GOLDEN_FREEZE_MS = 2500;
@@ -87,7 +89,7 @@ let run = newRunStats(); // расширенная статистика парт
 
 function newRunStats() {
   // ключи `croc` и `crocAtOneLife` — часть формата /api/score и сохранённой статистики, относятся к Альфа-Бонусу
-  return { livesLost: 0, maxBombKills: 0, crocAtOneLife: false, bonuses: { golden: 0, bomb: 0, freeze: 0, croc: 0 } };
+  return { livesLost: 0 /* в половинках сердца */, maxBombKills: 0, crocAtOneLife: false, bonuses: { golden: 0, bomb: 0, freeze: 0, croc: 0 } };
 }
 let lastTs = 0;
 
@@ -330,12 +332,12 @@ function killBug(b, massKill = false) {
 
 function eatEverything() {
   run.bonuses.croc += 1;
-  if (lives === 1) { run.crocAtOneLife = true; }
+  if (lives <= 2) { run.crocAtOneLife = true; } // на последнем сердце
   const victims = bugs.filter((b) => b.behavior !== 'alfa');
   victims.forEach((b) => killBug(b, true));
   bugs = [];
   freezeLeft = Math.max(freezeLeft, ALFA_FREEZE_MS);
-  if (lives < MAX_LIVES) { lives += 1; }
+  lives = Math.min(MAX_LIVES, lives + ALFA_HEAL);
   score += ALFA_BONUS;
   flash = 0.25;
   sfx.alfa();
@@ -509,7 +511,7 @@ function drawBackground() {
 
 function drawProdLine() {
   const y = prodY();
-  const danger = lives === 1 ? 0.5 + 0.5 * Math.sin(performance.now() / 120) : 0;
+  const danger = lives <= 2 ? 0.5 + 0.5 * Math.sin(performance.now() / 120) : 0;
   ctx.fillStyle = `rgba(255, 60, 90, ${0.1 + danger * 0.12})`;
   ctx.fillRect(0, y, W, H - y);
   ctx.strokeStyle = '#ff5470';
@@ -641,10 +643,22 @@ function render() {
 }
 
 /* ---------- HUD ---------- */
+const heartNodes = Array.from({ length: MAX_LIVES / 2 }, () => {
+  const h = document.createElement('i');
+  h.className = 'heart';
+  el.lives.append(h);
+  return h;
+});
+el.lives.setAttribute('role', 'img');
+
 function updateHud() {
   el.score.textContent = score;
   el.combo.textContent = combo;
-  el.lives.textContent = '●'.repeat(Math.max(0, lives)) + '○'.repeat(Math.max(0, MAX_LIVES - lives));
+  heartNodes.forEach((h, i) => {
+    const left = lives - i * 2; // сколько половинок приходится на это сердце
+    h.className = left >= 2 ? 'heart' : left === 1 ? 'heart half' : 'heart empty';
+  });
+  el.lives.setAttribute('aria-label', `Жизни: ${Math.max(0, lives) / 2} из ${MAX_LIVES / 2}`);
   el.best.textContent = Math.max(best, score);
 }
 
@@ -796,7 +810,7 @@ async function submitResult(finalScore, finalKills, durationMs) {
   try {
     const data = await api('/api/score', {
       kills: finalKills, score: finalScore, durationMs,
-      bestCombo, wave, livesLost: run.livesLost, bonuses: run.bonuses,
+      bestCombo, wave, livesLost: Math.ceil(run.livesLost / 2), bonuses: run.bonuses,
       maxBombKills: run.maxBombKills, crocAtOneLife: run.crocAtOneLife,
     });
     currentUser = data.user;
