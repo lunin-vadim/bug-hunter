@@ -13,7 +13,21 @@ const ALFA_FREEZE_MS = 1500;
 const ALFA_IMAGE = 'assets/alfa-bonus.png';
 const DECOY_PENALTY = 2;
 const WAVE_EVERY_MS = 30000;
-const WAVE_BOOST_MS = 4000;
+const WAVE_BOOST_MS = 5000;
+// прогрессия сложности: чем дальше, тем быстрее и гуще
+const SPEED_STEP_PER_WAVE = 0.1;   // прирост скорости за волну
+const SPEED_STEP_IN_WAVE = 0.1;    // плюс плавный разгон внутри волны
+const SPEED_CAP = 2.2;
+const SPAWN_START_MS = 1700;
+const SPAWN_DECAY_PER_WAVE = 0.85; // интервал спавна умножается на это каждую волну
+const SPAWN_MIN_MS = 420;
+const ALFA_COOLDOWN_MS = 30000;    // Альфа-Бонус не чаще, чем раз в это время
+const ALFA_CLEAR_ZONE = 0.5;       // Альфа-Бонус чистит нижнюю часть поля (доля высоты до прода), а не весь экран
+const THREATS = new Set(['normal', 'splitter', 'golden', 'dasher']); // баги, за пролёт которых отнимается жизнь
+const DASH_FROM = 0.3;             // с какой доли высоты паук делает рывок
+const DASH_MUL = 2.6;
+// что нового приносит волна (баннер при её начале)
+const WAVE_NEWS = { 2: 'новые жуки и бонусы', 3: 'делятся и приманки', 4: 'комары-зигзаг', 6: 'пауки: рывок', 8: 'скорпионы: броня' };
 const SLOW_MS = 4000;
 const SLOW_FACTOR = 0.4;
 const BOMB_RADIUS = 150;
@@ -42,15 +56,19 @@ const STORAGE_KEY = 'bug-hunter-fullscreen:best';
 const FX_KEY = 'bug-hunter-fullscreen:fx';
 
 const BUG_KINDS = [
-  { emoji: '🐛', points: 1, hp: 1, size: 28, minSpeed: 32, maxSpeed: 55, weight: 6, behavior: 'normal' },
-  { emoji: '🐞', points: 2, hp: 1, size: 24, minSpeed: 65, maxSpeed: 95, weight: 3, behavior: 'normal' },
-  { emoji: '🪲', points: 3, hp: 2, size: 36, minSpeed: 22, maxSpeed: 36, weight: 2, behavior: 'normal' },
-  { emoji: '🪳', points: 4, hp: 2, size: 32, minSpeed: 45, maxSpeed: 70, weight: 2, behavior: 'splitter' },
-  { emoji: '🐝', points: 6, hp: 1, size: 28, minSpeed: 45, maxSpeed: 65, weight: 1, behavior: 'golden' },
-  { emoji: '🐌', points: 0, hp: 1, size: 26, minSpeed: 40, maxSpeed: 65, weight: 1.2, behavior: 'decoy' },
-  { emoji: '', image: ALFA_IMAGE, points: 0, hp: 1, size: 50, minSpeed: 38, maxSpeed: 55, weight: 0.6, behavior: 'alfa' },
-  { emoji: '🧊', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'freeze' },
-  { emoji: '💣', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'bomb' },
+  { emoji: '🐛', points: 1, hp: 1, size: 28, minSpeed: 32, maxSpeed: 55, weight: 6, behavior: 'normal', minWave: 1, fade: 0.15 },
+  { emoji: '🐞', points: 2, hp: 1, size: 24, minSpeed: 65, maxSpeed: 95, weight: 3, behavior: 'normal', minWave: 1 },
+  { emoji: '🪲', points: 3, hp: 2, size: 36, minSpeed: 22, maxSpeed: 36, weight: 2, behavior: 'normal', minWave: 2 },
+  { emoji: '🪳', points: 4, hp: 2, size: 32, minSpeed: 45, maxSpeed: 70, weight: 2, behavior: 'splitter', minWave: 3 },
+  { emoji: '🐝', points: 6, hp: 1, size: 28, minSpeed: 45, maxSpeed: 65, weight: 1, behavior: 'golden', minWave: 2 },
+  { emoji: '🐌', points: 0, hp: 1, size: 26, minSpeed: 40, maxSpeed: 65, weight: 1.2, behavior: 'decoy', minWave: 3 },
+  { emoji: '', image: ALFA_IMAGE, points: 0, hp: 1, size: 50, minSpeed: 38, maxSpeed: 55, weight: 0.25, behavior: 'alfa', minWave: 4 },
+  { emoji: '🧊', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'freeze', minWave: 2 },
+  { emoji: '💣', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'bomb', minWave: 2 },
+  // новые враги, открываются с волнами
+  { emoji: '🦟', points: 3, hp: 1, size: 22, minSpeed: 85, maxSpeed: 120, weight: 2, behavior: 'normal', ampMul: 3, minWave: 4, glow: 'rgba(255, 255, 255, 0.55)' },
+  { emoji: '🕷️', points: 5, hp: 1, size: 30, minSpeed: 30, maxSpeed: 45, weight: 1.6, behavior: 'dasher', minWave: 6, glow: 'rgba(255, 255, 255, 0.6)' },
+  { emoji: '🦂', points: 8, hp: 4, size: 44, minSpeed: 20, maxSpeed: 30, weight: 1.2, behavior: 'normal', minWave: 8 },
 ];
 
 // «укрепления»: падают только пока идёт бой с боссом
@@ -103,7 +121,7 @@ let bugs = [], splats = [], popups = [], particles = [];
 let score = 0, combo = 0, bestCombo = 0, kills = 0, lives = START_LIVES;
 let best = loadBest();
 let nextId = 1;
-let elapsed = 0, spawnTimer = 0, freezeLeft = 0, boostLeft = 0, wave = 1, nextWaveAt = WAVE_EVERY_MS;
+let elapsed = 0, spawnTimer = 0, freezeLeft = 0, boostLeft = 0, wave = 1, nextWaveAt = WAVE_EVERY_MS, lastAlfaAt = -Infinity;
 let banner = null; // { text, color, left }
 let shake = 0, flash = 0;
 let slowLeft = 0, countdownLeft = 0, lastTickSec = 0;
@@ -320,17 +338,23 @@ getImage(ALFA_IMAGE); // прогреваем кэш до первого поя�
 
 /* ---------- Спавн ---------- */
 function pickKind() {
-  const total = BUG_KINDS.reduce((s, k) => s + k.weight, 0);
+  const alfaReady = elapsed - lastAlfaAt >= ALFA_COOLDOWN_MS;
+  const pool = BUG_KINDS
+    .filter((k) => wave >= (k.minWave || 1) && (k.behavior !== 'alfa' || alfaReady))
+    .map((k) => ({ k, w: k.weight / (1 + (k.fade || 0) * (wave - 1)) }));
+  const total = pool.reduce((s, p) => s + p.w, 0);
   let r = Math.random() * total;
-  for (const k of BUG_KINDS) {
-    r -= k.weight;
-    if (r <= 0) { return k; }
+  for (const p of pool) {
+    r -= p.w;
+    if (r <= 0) { return p.k; }
   }
   return BUG_KINDS[0];
 }
 
 function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
-  const speedBoost = 1 + Math.min(0.6, (wave - 1) * 0.07);
+  const inWave = Math.max(0, Math.min(1, (elapsed - (nextWaveAt - WAVE_EVERY_MS)) / WAVE_EVERY_MS));
+  const speedBoost = Math.min(SPEED_CAP, 1 + (wave - 1) * SPEED_STEP_PER_WAVE + inWave * SPEED_STEP_IN_WAVE);
+  if (kind.behavior === 'alfa') { lastAlfaAt = elapsed; }
   bugs.push({
     id: nextId++,
     kind,
@@ -344,7 +368,7 @@ function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
     points: kind.points,
     size: kind.size * S,
     phase: Math.random() * Math.PI * 2,
-    amp: (10 + Math.random() * 25) * S,
+    amp: (10 + Math.random() * 25) * S * (kind.ampMul || 1),
     baseX: 0,
     canSplit: kind.behavior === 'splitter' && canSplit,
   });
@@ -352,11 +376,10 @@ function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
   b.baseX = b.x;
 }
 
-/** Интервал спавна ужимается с 1700 до 600 мс за первые 150 секунд, плюс буст при смене волны */
+/** Интервал спавна сжимается каждую волну и не замирает: 1700 мс → 420 мс, плюс буст при смене волны */
 function spawnInterval() {
-  const progress = Math.min(1, elapsed / 150000);
-  let iv = 1700 - 1100 * progress;
-  if (boostLeft > 0) { iv *= 0.75; }
+  let iv = Math.max(SPAWN_MIN_MS, SPAWN_START_MS * SPAWN_DECAY_PER_WAVE ** (elapsed / WAVE_EVERY_MS));
+  if (boostLeft > 0) { iv *= 0.55; }
   return iv;
 }
 
@@ -376,7 +399,7 @@ function showBanner(text, color) { banner = { text, color, left: BANNER_MS }; }
 function resetGame() {
   bugs = []; splats = []; popups = []; particles = [];
   score = 0; combo = 0; bestCombo = 0; kills = 0; lives = START_LIVES;
-  elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS;
+  elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastAlfaAt = -Infinity;
   slowLeft = 0; countdownLeft = 0;
   boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE; shield = 0;
   run = newRunStats();
@@ -478,15 +501,15 @@ function eatEverything() {
   run.bonuses.croc += 1;
   damageBoss(8);
   if (lives <= 2) { run.crocAtOneLife = true; } // на последнем сердце
-  const victims = bugs.filter((b) => b.behavior !== 'alfa');
+  const zoneTop = prodY() * (1 - ALFA_CLEAR_ZONE); // чистим нижнюю часть поля, ближе к проду
+  const victims = bugs.filter((b) => THREATS.has(b.behavior) && b.y >= zoneTop);
   victims.forEach((b) => killBug(b, true));
-  bugs = [];
   freezeLeft = Math.max(freezeLeft, ALFA_FREEZE_MS);
   lives = Math.min(MAX_LIVES, lives + ALFA_HEAL);
   score += ALFA_BONUS;
   flash = 0.25;
   sfx.alfa();
-  showBanner('Альфа-Бонус! +1 жизнь', '#ff5a4d');
+  showBanner('Альфа-Бонус: нижняя зона чиста, +1 жизнь', '#ff5a4d');
 }
 
 function activateFreeze(b) {
@@ -503,7 +526,7 @@ function detonate(b) {
   let bombKills = 0;
   run.bonuses.bomb += 1;
   for (const v of victims) {
-    if (v.behavior === 'normal' || v.behavior === 'splitter' || v.behavior === 'golden') {
+    if (THREATS.has(v.behavior)) {
       killBug(v, true);
       bombKills += 1;
     } else {
@@ -564,7 +587,7 @@ function defeatBoss() {
   burst(x, y, BRAND, 30);
   burst(x, y, '#ff5470', 24);
   for (const b of bugs.slice()) {
-    if (b.behavior === 'normal' || b.behavior === 'splitter') { killBug(b, true); }
+    if (THREATS.has(b.behavior) && b.behavior !== 'golden') { killBug(b, true); }
   }
   score += reward;
   kills += 1;
@@ -709,7 +732,7 @@ function update(dt) {
     wave += 1;
     nextWaveAt += WAVE_EVERY_MS;
     boostLeft = WAVE_BOOST_MS;
-    showBanner(`Волна ${wave}: баги ускоряются`, '#ff9f43');
+    showBanner(`Волна ${wave}: ${WAVE_NEWS[wave] || 'баги ускоряются'}`, '#ff9f43');
     sfx.wave();
   }
   boostLeft = Math.max(0, boostLeft - ms);
@@ -732,13 +755,14 @@ function update(dt) {
 
   const line = prodY();
   for (const b of bugs.slice()) {
-    b.y += b.speed * dt * pace;
+    const dash = b.behavior === 'dasher' && b.y > H * DASH_FROM ? DASH_MUL : 1;
+    b.y += b.speed * dt * pace * dash;
     b.phase += dt * 2.2 * pace;
     b.x = b.baseX + Math.sin(b.phase) * b.amp;
     b.x = Math.max(b.size * 0.5, Math.min(W - b.size * 0.5, b.x));
     if (b.y >= line) {
       bugs = bugs.filter((x) => x.id !== b.id);
-      if (b.behavior === 'normal' || b.behavior === 'splitter' || b.behavior === 'golden') {
+      if (THREATS.has(b.behavior)) {
         addSplat(b.x, line);
         loseLife(b.x);
         if (phase !== 'playing') { return; }
@@ -864,6 +888,12 @@ function drawBugs() {
     } else if (b.behavior === 'alfa') {
       ctx.shadowColor = '#ef3124';
       ctx.shadowBlur = 20;
+    } else if (b.behavior === 'dasher' && b.y > H * DASH_FROM) {
+      ctx.shadowColor = '#ff5470';
+      ctx.shadowBlur = 16;
+    } else if (b.kind.glow) { // тёмные жуки: подсветка, чтобы не терялись на фоне
+      ctx.shadowColor = b.kind.glow;
+      ctx.shadowBlur = 12;
     } else if (b.behavior === 'shield') {
       ctx.shadowColor = '#7fd8ff';
       ctx.shadowBlur = 18;
@@ -922,7 +952,13 @@ function drawBanner() {
   const a = Math.min(1, t * 3, (1 - t) * 6 + 0.2);
   ctx.globalAlpha = Math.max(0, Math.min(1, a));
   ctx.fillStyle = banner.color;
-  ctx.font = `700 ${Math.round(28 * S)}px ${FONT_DISPLAY}`;
+  let px = Math.round(28 * S);
+  ctx.font = `700 ${px}px ${FONT_DISPLAY}`;
+  const textW = ctx.measureText(banner.text).width;
+  if (textW > W - 24) { // длинный баннер ужимаем под ширину экрана
+    px = Math.max(12, Math.floor(px * (W - 24) / textW));
+    ctx.font = `700 ${px}px ${FONT_DISPLAY}`;
+  }
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,.6)';
