@@ -398,8 +398,11 @@ function spawnInterval() {
 }
 
 /* ---------- Эффекты ---------- */
-function addPopup(x, y, text, color) { popups.push({ x, y, text, color, born: performance.now() }); }
-function addSplat(x, y) { splats.push({ x, y, born: performance.now() }); }
+// часы эффектов идут только пока партия активна: на паузе и при блокировке экрана брызги и подписи замирают,
+// а не «дорастают» по реальному времени до размера экрана
+let fxClock = 0;
+function addPopup(x, y, text, color) { popups.push({ x, y, text, color, born: fxClock }); }
+function addSplat(x, y) { splats.push({ x, y, born: fxClock }); }
 function burst(x, y, color, n = 10) {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
@@ -851,7 +854,7 @@ function update(dt) {
   }
   particles = particles.filter((p) => p.life > 0);
 
-  const now = performance.now();
+  const now = fxClock;
   splats = splats.filter((s) => now - s.born < SPLAT_MS);
   popups = popups.filter((p) => now - p.born < POPUP_MS);
   if (banner) { banner.left -= ms; if (banner.left <= 0) { banner = null; } }
@@ -992,9 +995,9 @@ function drawBugs() {
 }
 
 function drawEffects() {
-  const now = performance.now();
+  const now = fxClock;
   for (const s of splats) {
-    const t = (now - s.born) / SPLAT_MS;
+    const t = Math.min(1, (now - s.born) / SPLAT_MS);
     ctx.globalAlpha = 1 - t;
     ctx.fillStyle = BRAND;
     ctx.beginPath();
@@ -1012,7 +1015,7 @@ function drawEffects() {
   ctx.textBaseline = 'middle';
   ctx.font = `700 ${Math.round(20 * S)}px ${FONT_UI}`;
   for (const p of popups) {
-    const t = (now - p.born) / POPUP_MS;
+    const t = Math.min(1, (now - p.born) / POPUP_MS);
     ctx.globalAlpha = 1 - t;
     ctx.fillStyle = p.color;
     ctx.fillText(p.text, p.x, p.y - 36 * S * t);
@@ -1150,6 +1153,7 @@ function frame(ts) {
   const dt = Math.min(0.05, (ts - lastTs) / 1000);
   lastTs = ts;
   if (phase === 'playing') {
+    fxClock += dt * 1000;
     if (countdownLeft > 0) { countdownLeft -= dt * 1000; } else { update(dt); }
   }
   render();
