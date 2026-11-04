@@ -28,6 +28,7 @@ const MAX_KILLS_BASE = 60; // запас на Альфа-Бонус, устра�
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 const app = express();
+app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use((_req, res, next) => {
   res.set({

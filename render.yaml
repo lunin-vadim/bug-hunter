@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: bug-hunter
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bug-hunter-db
+          property: connectionString
+
+databases:
+  - name: bug-hunter-db
+    plan: free
