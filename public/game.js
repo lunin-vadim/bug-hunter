@@ -32,7 +32,18 @@ const SLOW_MS = 4000;
 const SLOW_FACTOR = 0.4;
 const BOMB_RADIUS = 150;
 const RESUME_COUNTDOWN_MS = 3000;
-const COMBO_MILESTONES = [5, 10, 15, 25, 40];
+const COMBO_MILESTONES = [5, 10, 15, 20, 25, 40];
+// «Азарт»: каждые 10 в серии — множитель очков (×2, ×3). Промах, приманка или пропущенный баг сбрасывают серию
+const COMBO_MULT_STEP = 10;
+const COMBO_MULT_MAX = 3;
+// случайные события: неожиданные всплески между волнами
+const EVENT_FIRST_AT_MS = 35000;
+const EVENT_GAP_MS = [18000, 30000]; // пауза до следующего события (случайно в этих пределах)
+const EVENTS = {
+  rain: { icon: '🌧️', name: 'Дождь багов', ms: 7000, color: '#7fd8ff' },
+  gold: { icon: '🐝', name: 'Золотая лихорадка', ms: 8000, color: '#ffd166' },
+  wall: { icon: '🧱', name: 'Стена багов', ms: 0, color: '#ff9f43' },
+};
 const BANNER_MS = 2000;
 const SPLAT_MS = 400;
 const POPUP_MS = 700;
@@ -116,6 +127,7 @@ const el = {
 /* ---------- Состояние ---------- */
 let W = 0, H = 0, DPR = 1, S = 1; // S — масштаб размеров/скоростей относительно окна
 let boss = null, bossesDefeated = 0, nextBossScore = BOSS_FIRST_SCORE, shield = 0;
+let ev = null, nextEventAt = EVENT_FIRST_AT_MS, lastEvent = null;
 let phase = 'idle'; // idle | playing | paused | over
 let bugs = [], splats = [], popups = [], particles = [];
 let score = 0, combo = 0, bestCombo = 0, kills = 0, lives = START_LIVES;
@@ -179,6 +191,8 @@ const sfx = {
   over: () => { tone(330, 0.3, 'sawtooth', 0.12, 110); tone(165, 0.5, 'sawtooth', 0.12, 55, 0.25); },
   bossIn: () => { tone(110, 0.5, 'sawtooth', 0.14, 220); tone(165, 0.5, 'square', 0.08, 330, 0.25); },
   bossHit: () => tone(160, 0.07, 'square', 0.09, 100),
+  event: () => { tone(440, 0.12, 'square', 0.1); tone(660, 0.12, 'square', 0.1, null, 0.1); tone(880, 0.22, 'square', 0.1, null, 0.2); },
+  fever: () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.12, 'square', 0.08, null, i * 0.06)); },
   shieldUp: () => { tone(660, 0.1, 'triangle', 0.1); tone(990, 0.16, 'triangle', 0.1, null, 0.07); },
   shieldHit: () => tone(880, 0.12, 'triangle', 0.12, 440),
   patch: () => { tone(523, 0.1, 'sine', 0.1); tone(784, 0.16, 'sine', 0.1, null, 0.08); },
@@ -402,6 +416,7 @@ function resetGame() {
   elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastAlfaAt = -Infinity;
   slowLeft = 0; countdownLeft = 0;
   boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE; shield = 0;
+  ev = null; nextEventAt = EVENT_FIRST_AT_MS; lastEvent = null;
   run = newRunStats();
   banner = null; shake = 0; flash = 0;
 }
@@ -464,12 +479,22 @@ function loseLife(x = W / 2) {
   }
   lives -= 1;
   run.livesLost += 1;
-  combo = 0;
+  breakCombo();
   shake = 0.35;
   flash = 0.35;
   sfx.life();
   updateHud();
   if (lives <= 0) { endGame(); }
+}
+
+function comboMult() {
+  return Math.min(COMBO_MULT_MAX, 1 + Math.floor(combo / COMBO_MULT_STEP));
+}
+
+/** Сброс серии; потерю большой серии (с множителем) показываем явно — на этом держится азарт */
+function breakCombo() {
+  if (combo >= COMBO_MULT_STEP) { showBanner(`Серия потеряна: ${combo}`, '#9aa4b5'); }
+  combo = 0;
 }
 
 function comboBonus(c) {
@@ -485,9 +510,10 @@ function killBug(b, massKill = false) {
   burst(b.x, b.y, b.behavior === 'golden' ? '#ffd166' : BRAND, 8);
   kills += 1;
   const bonus = massKill ? 0 : comboBonus(combo);
-  const gain = b.points + bonus;
+  const mult = massKill ? 1 : comboMult();
+  const gain = (b.points + bonus) * mult;
   score += gain;
-  if (gain > 0) { addPopup(b.x, b.y - b.size * 0.5, `+${gain}`, bonus > 0 ? '#ffd166' : BRAND); }
+  if (gain > 0) { addPopup(b.x, b.y - b.size * 0.5, `+${gain}`, mult > 1 ? '#ffd166' : bonus > 0 ? '#ffd166' : BRAND); }
 
   if (b.canSplit && !massKill) {
     for (const dx of [-1, 1]) {
@@ -540,6 +566,43 @@ function detonate(b) {
   shake = Math.max(shake, 0.3);
   sfx.bomb();
   showBanner(victims.length ? `Hotfix: устранено ${victims.length}` : 'Hotfix: пусто', '#ffb347');
+}
+
+/* ---------- События ---------- */
+function spawnWall() {
+  const room = MAX_BUGS - bugs.length;
+  const n = Math.min(room, Math.max(6, Math.min(12, Math.floor(W / 64))));
+  if (n < 4) { return; }
+  const margin = 40 * S;
+  let speed = null;
+  for (let i = 0; i < n; i++) {
+    spawnBug(BUG_KINDS[i % 3 === 2 ? 1 : 0], margin + (W - margin * 2) * (i / (n - 1)), undefined, false);
+    const b = bugs[bugs.length - 1];
+    speed = speed ?? b.speed * 1.15;
+    b.speed = speed; // вся стена идёт ровным строем
+    b.amp = 0;
+  }
+}
+
+function startEvent() {
+  const types = Object.keys(EVENTS).filter((t) => t !== lastEvent);
+  const type = types[Math.floor(Math.random() * types.length)];
+  const def = EVENTS[type];
+  lastEvent = type;
+  showBanner(`${def.icon} ${def.name}!`, def.color);
+  sfx.event();
+  if (type === 'wall') { spawnWall(); } else { ev = { type, left: def.ms }; }
+}
+
+function updateEvents(ms) {
+  if (ev) {
+    ev.left -= ms;
+    if (ev.left <= 0) { ev = null; }
+  }
+  if (!ev && !boss && wave >= 2 && elapsed >= nextEventAt) {
+    startEvent();
+    nextEventAt = elapsed + EVENT_GAP_MS[0] + Math.random() * (EVENT_GAP_MS[1] - EVENT_GAP_MS[0]) + (ev ? ev.left : 0);
+  }
 }
 
 /* ---------- Босс ---------- */
@@ -660,7 +723,7 @@ function handleClick(px, py) {
     return;
   }
   if (!target) {
-    combo = 0;
+    breakCombo();
     sfx.miss();
     updateHud();
     return;
@@ -668,7 +731,7 @@ function handleClick(px, py) {
   if (target.behavior === 'decoy') {
     bugs = bugs.filter((x) => x.id !== target.id);
     score = Math.max(0, score - DECOY_PENALTY);
-    combo = 0;
+    breakCombo();
     addPopup(target.x, target.y, `-${DECOY_PENALTY}`, '#ff5470');
     burst(target.x, target.y, '#ff5470', 8);
     sfx.decoy();
@@ -707,13 +770,19 @@ function handleClick(px, py) {
     } else {
       combo += 1;
       bestCombo = Math.max(bestCombo, combo);
-      if (COMBO_MILESTONES.includes(combo)) { showBanner(`Комбо ×${combo}`, '#ffd166'); }
+      if (combo % COMBO_MULT_STEP === 0 && combo / COMBO_MULT_STEP < COMBO_MULT_MAX) {
+        showBanner(`Азарт ×${comboMult()}!`, '#ffd166');
+        sfx.fever();
+        flash = Math.max(flash, 0.12);
+      } else if (COMBO_MILESTONES.includes(combo)) { showBanner(`Комбо ×${combo}`, '#ffd166'); }
       if (target.behavior === 'golden') {
         run.bonuses.golden += 1;
         score += GOLDEN_BONUS;
-        freezeLeft = Math.max(freezeLeft, GOLDEN_FREEZE_MS);
         addPopup(target.x, target.y - target.size, `+${GOLDEN_BONUS} ★`, '#ffd166');
-        showBanner('🐝 Золотой баг! Пауза спавна', '#ffd166');
+        if (!(ev && ev.type === 'gold')) { // во время лихорадки пауза спавна не нужна
+          freezeLeft = Math.max(freezeLeft, GOLDEN_FREEZE_MS);
+          showBanner('🐝 Золотой баг! Пауза спавна', '#ffd166');
+        }
         sfx.golden();
       } else {
         sfx.hit(combo);
@@ -740,15 +809,20 @@ function update(dt) {
   const pace = slowLeft > 0 ? SLOW_FACTOR : 1;
 
   if (!boss && score >= nextBossScore) { spawnBoss(); }
+  updateEvents(ms);
 
   if (freezeLeft > 0) {
     freezeLeft = Math.max(0, freezeLeft - ms);
   } else {
     spawnTimer += ms;
-    const iv = spawnInterval() * (boss ? 1.8 : 1); // пока идёт бой с боссом, обычных багов меньше
+    let iv = spawnInterval() * (boss ? 1.8 : 1); // пока идёт бой с боссом, обычных багов меньше
+    if (ev && ev.type === 'rain') { iv *= 0.3; }
+    if (ev && ev.type === 'gold') { iv = 650; }
     while (spawnTimer >= iv && bugs.length < MAX_BUGS) {
       spawnTimer -= iv;
-      spawnBug(pickKind());
+      if (ev && ev.type === 'rain') { spawnBug(BUG_KINDS[Math.random() < 0.7 ? 0 : 1]); }
+      else if (ev && ev.type === 'gold') { spawnBug(BUG_KINDS.find((k) => k.behavior === 'golden')); }
+      else { spawnBug(pickKind()); }
     }
     if (bugs.length >= MAX_BUGS) { spawnTimer = 0; }
   }
@@ -968,6 +1042,27 @@ function drawBanner() {
   ctx.globalAlpha = 1;
 }
 
+function drawFever() {
+  const m = comboMult();
+  if (m < 2) { return; }
+  const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+  const pulse = 0.85 + 0.15 * Math.sin(performance.now() / 220);
+  g.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  g.addColorStop(1, m >= 3 ? `rgba(255, 209, 102, ${0.2 * pulse})` : `rgba(184, 240, 74, ${0.15 * pulse})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawEventBar() {
+  if (!ev) { return; }
+  const def = EVENTS[ev.type];
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 ${Math.round(14 * S)}px ${FONT_UI}`;
+  ctx.fillStyle = def.color;
+  ctx.fillText(`${def.icon} ${def.name} · ${Math.ceil(ev.left / 1000)} с`, W / 2, prodY() - 20 * S);
+}
+
 function drawSlowTint() {
   if (slowLeft <= 0) { return; }
   ctx.fillStyle = `rgba(80, 170, 255, ${0.05 + 0.04 * Math.sin(performance.now() / 200)})`;
@@ -997,8 +1092,10 @@ function render() {
   drawBugs();
   drawEffects();
   drawSlowTint();
+  drawFever();
   ctx.restore();
   drawBossBar();
+  drawEventBar();
   drawBanner();
   drawCountdown();
   if (fx && flash > 0) {
@@ -1018,7 +1115,7 @@ el.lives.setAttribute('role', 'img');
 
 function updateHud() {
   el.score.textContent = score;
-  el.combo.textContent = combo;
+  el.combo.textContent = comboMult() > 1 ? `${combo} ×${comboMult()}` : combo;
   heartNodes.forEach((h, i) => {
     const left = lives - i * 2; // сколько половинок приходится на это сердце
     h.className = left >= 2 ? 'heart' : left === 1 ? 'heart half' : 'heart empty';

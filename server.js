@@ -24,7 +24,9 @@ const TOKEN_TTL_S = 60 * 60 * 24 * 30;
 /** Ограничения на отправку партии: серверу нельзя верить клиенту, поэтому режем явную накрутку */
 const MIN_GAME_MS = 8000;
 const MAX_KILLS_PER_SEC = 12;
-const MAX_KILLS_BASE = 60; // запас на Альфа-Бонус, устраняющий весь экран
+// на одно убийство: до 8 очков за скорпиона + бонус серии 3, всё это ×3 за «Азарт»; запас на золото и боссов
+const MAX_SCORE_PER_KILL = 40;
+const MAX_KILLS_BASE = 60; // запас на массовые убийства (Альфа-Бонус, Hotfix)
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 const app = express();
@@ -150,7 +152,7 @@ app.post('/api/score', requireAuth, asyncH(async (req, res) => {
   if (!valid || durationMs < MIN_GAME_MS || durationMs > 6 * 60 * 60 * 1000) {
     return res.status(400).json({ error: 'Некорректный результат' });
   }
-  if (kills > MAX_KILLS_BASE + (durationMs / 1000) * MAX_KILLS_PER_SEC || score > kills * 20 + 100) {
+  if (kills > MAX_KILLS_BASE + (durationMs / 1000) * MAX_KILLS_PER_SEC || score > kills * MAX_SCORE_PER_KILL + 100) {
     return res.status(422).json({ error: 'Результат отклонён как нереалистичный' });
   }
   // расширенная статистика приходит от клиента: проверяем только границы правдоподобия
