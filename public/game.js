@@ -23,6 +23,18 @@ const BANNER_MS = 2000;
 const SPLAT_MS = 400;
 const POPUP_MS = 700;
 const MAX_BUGS = 40;
+// «Завали Босса»: большой баг, который надо закликать, пока он ползёт к продакшену
+const BOSS_EMOJI = '👾';
+const BOSS_FIRST_SCORE = 1000;   // с какого счёта появляется первый босс
+const BOSS_EVERY_SCORE = 1500;   // через сколько очков после победы/прорыва — следующий
+const BOSS_HP_BASE = 25;
+const BOSS_HP_STEP = 10;         // каждый следующий босс крепче
+const BOSS_SIZE = 120;
+const BOSS_DESCENT_S = 40;       // за сколько секунд босс доползёт до прода (каждый следующий быстрее)
+const BOSS_MINION_MS = 2200;     // как часто босс выпускает мелких багов
+const BOSS_BONUS = 150;
+const BOSS_BONUS_STEP = 50;
+const BOSS_REACH_DAMAGE = 4;     // половинок сердца: прорвавшийся босс отнимает 2 сердца
 const STORAGE_KEY = 'bug-hunter-fullscreen:best';
 const FX_KEY = 'bug-hunter-fullscreen:fx';
 
@@ -76,6 +88,7 @@ const el = {
 
 /* ---------- Состояние ---------- */
 let W = 0, H = 0, DPR = 1, S = 1; // S — масштаб размеров/скоростей относительно окна
+let boss = null, bossesDefeated = 0, nextBossScore = BOSS_FIRST_SCORE;
 let phase = 'idle'; // idle | playing | paused | over
 let bugs = [], splats = [], popups = [], particles = [];
 let score = 0, combo = 0, bestCombo = 0, kills = 0, lives = START_LIVES;
@@ -137,6 +150,9 @@ const sfx = {
   bomb: () => { tone(120, 0.35, 'sawtooth', 0.16, 40); tone(240, 0.2, 'square', 0.08, 60, 0.02); },
   tick: () => tone(700, 0.07, 'sine', 0.06),
   over: () => { tone(330, 0.3, 'sawtooth', 0.12, 110); tone(165, 0.5, 'sawtooth', 0.12, 55, 0.25); },
+  bossIn: () => { tone(110, 0.5, 'sawtooth', 0.14, 220); tone(165, 0.5, 'square', 0.08, 330, 0.25); },
+  bossHit: () => tone(160, 0.07, 'square', 0.09, 100),
+  bossDown: () => { [262, 330, 392, 523, 659, 784].forEach((f, i) => tone(f, 0.2, 'triangle', 0.12, null, i * 0.08)); tone(65, 0.6, 'sawtooth', 0.12, 30); },
 };
 
 /* ---------- Музыка (WebAudio, 8-бит, без файлов) ---------- */
@@ -205,7 +221,7 @@ const music = (() => {
   }
 
   function tick() {
-    const bpm = 118 + Math.min(wave, 10) * 3; // чем выше волна, тем быстрее
+    const bpm = 118 + Math.min(wave, 10) * 3 + (boss ? 16 : 0); // чем выше волна, тем быстрее; с боссом ещё быстрее
     const len = 60 / bpm / 4;
     while (nextTime < audioCtx.currentTime + 0.15) {
       playStep(step, nextTime, len);
@@ -350,6 +366,7 @@ function resetGame() {
   score = 0; combo = 0; bestCombo = 0; kills = 0; lives = START_LIVES;
   elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS;
   slowLeft = 0; countdownLeft = 0;
+  boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE;
   run = newRunStats();
   banner = null; shake = 0; flash = 0;
 }
@@ -439,6 +456,7 @@ function killBug(b, massKill = false) {
 
 function eatEverything() {
   run.bonuses.croc += 1;
+  damageBoss(8);
   if (lives <= 2) { run.crocAtOneLife = true; } // на последнем сердце
   const victims = bugs.filter((b) => b.behavior !== 'alfa');
   victims.forEach((b) => killBug(b, true));
@@ -473,11 +491,89 @@ function detonate(b) {
       burst(v.x, v.y, '#ffb347', 6);
     }
   }
+  if (boss && (boss.x - b.x) ** 2 + (boss.y - b.y) ** 2 <= (r + boss.size * 0.5) ** 2) { damageBoss(5); }
   run.maxBombKills = Math.max(run.maxBombKills, bombKills);
   burst(b.x, b.y, '#ffb347', 36);
   shake = Math.max(shake, 0.3);
   sfx.bomb();
   showBanner(victims.length ? `Hotfix: устранено ${victims.length}` : 'Hotfix: пусто', '#ffb347');
+}
+
+/* ---------- Босс ---------- */
+function spawnBoss() {
+  const size = Math.max(BOSS_SIZE * S, 96); // на телефоне масштаб S мал — босс не должен стать крошечным
+  const maxHp = BOSS_HP_BASE + BOSS_HP_STEP * bossesDefeated;
+  boss = { x: W / 2, y: -size, size, hp: maxHp, maxHp, phase: 0, flash: 0, minionTimer: BOSS_MINION_MS * 0.5 };
+  showBanner('Завали Босса!', '#ff5470');
+  sfx.bossIn();
+  shake = Math.max(shake, 0.25);
+}
+
+function bossHit(px, py) {
+  if (!boss) { return false; }
+  const r = boss.size * 0.55 + HIT_RADIUS_BONUS * S;
+  return (px - boss.x) ** 2 + (py - boss.y) ** 2 <= r * r;
+}
+
+function damageBoss(n) {
+  if (!boss) { return; }
+  boss.hp -= n;
+  boss.flash = 0.15;
+  burst(boss.x, boss.y, '#ff9f9f', 4 + n);
+  if (boss.hp <= 0) { defeatBoss(); }
+}
+
+function defeatBoss() {
+  const { x, y } = boss;
+  const reward = BOSS_BONUS + BOSS_BONUS_STEP * bossesDefeated;
+  burst(x, y, '#ffd166', 40);
+  burst(x, y, BRAND, 30);
+  burst(x, y, '#ff5470', 24);
+  for (const b of bugs.slice()) {
+    if (b.behavior === 'normal' || b.behavior === 'splitter') { killBug(b, true); }
+  }
+  score += reward;
+  kills += 1;
+  lives = Math.min(MAX_LIVES, lives + ALFA_HEAL);
+  bossesDefeated += 1;
+  boss = null;
+  nextBossScore = score + BOSS_EVERY_SCORE;
+  addPopup(x, y, `+${reward}`, '#ffd166');
+  showBanner(`Босс повержен! +${reward}`, '#ffd166');
+  shake = 0.6;
+  flash = 0.5;
+  sfx.bossDown();
+}
+
+/** Возвращает false, если партия закончилась из-за прорыва босса */
+function updateBoss(dt, pace) {
+  const line = prodY();
+  const topY = (W <= 560 ? 120 : 96) * S + boss.size * 0.5;
+  boss.flash = Math.max(0, boss.flash - dt);
+  boss.phase += dt * 0.9 * pace;
+  boss.x = W / 2 + Math.sin(boss.phase) * (W / 2 - boss.size * 0.6) * 0.85;
+  if (boss.y < topY) {
+    boss.y = Math.min(topY, boss.y + 170 * S * dt * pace); // выезжает сверху
+  } else {
+    const descent = Math.max(25, BOSS_DESCENT_S - 3 * bossesDefeated);
+    boss.y += ((line - topY) / descent) * dt * pace;
+  }
+  boss.minionTimer -= dt * 1000 * pace;
+  if (boss.minionTimer <= 0 && boss.y > 0) {
+    boss.minionTimer = Math.max(1100, BOSS_MINION_MS - 250 * bossesDefeated);
+    if (bugs.length < MAX_BUGS) { spawnBug(BUG_KINDS[Math.floor(Math.random() * 3)], boss.x, boss.y + boss.size * 0.4, false, 1.4); }
+  }
+  if (boss.y + boss.size * 0.35 >= line) {
+    addSplat(boss.x, line);
+    boss = null;
+    nextBossScore = score + BOSS_EVERY_SCORE;
+    showBanner('Босс прорвался! −2 сердца', '#ff5470');
+    for (let i = 0; i < BOSS_REACH_DAMAGE; i++) {
+      loseLife();
+      if (phase !== 'playing') { return false; }
+    }
+  }
+  return true;
 }
 
 function handleClick(px, py) {
@@ -488,6 +584,15 @@ function handleClick(px, py) {
     const b = bugs[i];
     const r = b.size * 0.6 + HIT_RADIUS_BONUS * S;
     if ((px - b.x) ** 2 + (py - b.y) ** 2 <= r * r) { target = b; break; }
+  }
+  if (!target && bossHit(px, py)) {
+    // комбо босс не трогает: серия считается по убитым багам
+    score += 1;
+    addPopup(px, py - 10 * S, '+1', '#ff9f9f');
+    sfx.bossHit();
+    damageBoss(1);
+    updateHud();
+    return;
   }
   if (!target) {
     combo = 0;
@@ -552,11 +657,13 @@ function update(dt) {
   slowLeft = Math.max(0, slowLeft - ms);
   const pace = slowLeft > 0 ? SLOW_FACTOR : 1;
 
+  if (!boss && score >= nextBossScore) { spawnBoss(); }
+
   if (freezeLeft > 0) {
     freezeLeft = Math.max(0, freezeLeft - ms);
   } else {
     spawnTimer += ms;
-    const iv = spawnInterval();
+    const iv = spawnInterval() * (boss ? 1.8 : 1); // пока идёт бой с боссом, обычных багов меньше
     while (spawnTimer >= iv && bugs.length < MAX_BUGS) {
       spawnTimer -= iv;
       spawnBug(pickKind());
@@ -579,6 +686,8 @@ function update(dt) {
       }
     }
   }
+
+  if (boss && !updateBoss(dt, pace)) { return; }
 
   for (const p of particles) {
     p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 300 * S * dt; p.life -= dt;
@@ -633,6 +742,42 @@ function drawProdLine() {
   ctx.textBaseline = 'middle';
   ctx.fillText('PRODUCTION', W / 2, y + (H - y) / 2);
   ctx.letterSpacing = '0px';
+}
+
+function drawBoss() {
+  if (!boss) { return; }
+  const sp = getSprite(BOSS_EMOJI, boss.size);
+  const w = sp.width / DPR;
+  const pulse = 1 + 0.04 * Math.sin(performance.now() / 180);
+  ctx.save();
+  ctx.translate(boss.x, boss.y);
+  ctx.rotate(Math.sin(boss.phase * 2) * 0.1);
+  ctx.scale(pulse, pulse);
+  ctx.shadowColor = boss.flash > 0 ? '#ffffff' : '#ff5470';
+  ctx.shadowBlur = boss.flash > 0 ? 40 : 24;
+  ctx.drawImage(sp, -w / 2, -w / 2, w, w);
+  ctx.restore();
+}
+
+function drawBossBar() {
+  if (!boss) { return; }
+  const narrow = W < 600;
+  const bw = narrow ? W - 24 : Math.min(420, W * 0.4);
+  const x = (W - bw) / 2;
+  const y = narrow ? 72 : 28;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = `700 11px ${FONT_UI}`;
+  ctx.letterSpacing = '2px';
+  ctx.fillStyle = '#ff9f9f';
+  ctx.fillText(bossesDefeated ? `БАГ-БОСС · ${bossesDefeated + 1}` : 'БАГ-БОСС', x, y - 7);
+  ctx.textAlign = 'right';
+  ctx.letterSpacing = '0px';
+  ctx.fillText(`${Math.max(0, boss.hp)} / ${boss.maxHp}`, x + bw, y - 7);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.fillRect(x, y, bw, 10);
+  ctx.fillStyle = boss.flash > 0 ? '#ffffff' : '#ff5470';
+  ctx.fillRect(x, y, bw * Math.max(0, boss.hp / boss.maxHp), 10);
 }
 
 function drawBugs() {
@@ -737,10 +882,12 @@ function render() {
   if (fx && shake > 0) { ctx.translate((Math.random() - 0.5) * 14 * shake * 3, (Math.random() - 0.5) * 14 * shake * 3); }
   drawBackground();
   drawProdLine();
+  drawBoss();
   drawBugs();
   drawEffects();
   drawSlowTint();
   ctx.restore();
+  drawBossBar();
   drawBanner();
   drawCountdown();
   if (fx && flash > 0) {
