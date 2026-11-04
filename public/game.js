@@ -139,6 +139,109 @@ const sfx = {
   over: () => { tone(330, 0.3, 'sawtooth', 0.12, 110); tone(165, 0.5, 'sawtooth', 0.12, 55, 0.25); },
 };
 
+/* ---------- Музыка (WebAudio, 8-бит, без файлов) ---------- */
+const music = (() => {
+  const hz = (midi) => 440 * 2 ** ((midi - 69) / 12);
+  // Am – F – C – G, по такту на аккорд; в такте 16 шагов (шестнадцатые)
+  const CHORDS = [
+    { root: 45, arp: [69, 72, 76, 72] },
+    { root: 41, arp: [65, 69, 72, 69] },
+    { root: 48, arp: [67, 72, 76, 72] },
+    { root: 43, arp: [67, 71, 74, 71] },
+  ];
+  const MELODY = [ // нота на каждый 4-й шаг, 0 — пауза; по такту на аккорд
+    [81, 0, 79, 76], [77, 0, 76, 72], [79, 0, 76, 79], [74, 0, 76, 71],
+  ];
+  const LEVEL = 0.5;
+  let master = null, noise = null, timer = null, step = 0, nextTime = 0;
+
+  function setup() {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (master) { return; }
+    master = audioCtx.createGain();
+    master.gain.value = 0;
+    master.connect(audioCtx.destination);
+    noise = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.2, audioCtx.sampleRate);
+    const d = noise.getChannelData(0);
+    for (let i = 0; i < d.length; i++) { d[i] = Math.random() * 2 - 1; }
+  }
+
+  function note(freq, t, dur, type, vol) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(gain).connect(master);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+  }
+
+  function hat(t, vol, dur) {
+    const src = audioCtx.createBufferSource();
+    const hp = audioCtx.createBiquadFilter();
+    const gain = audioCtx.createGain();
+    src.buffer = noise;
+    hp.type = 'highpass';
+    hp.frequency.value = 6000;
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(hp).connect(gain).connect(master);
+    src.start(t);
+    src.stop(t + dur + 0.02);
+  }
+
+  function playStep(s, t, len) {
+    const bar = Math.floor(s / 16) % CHORDS.length;
+    const i = s % 16;
+    const chord = CHORDS[bar];
+    if (i % 2 === 0) { note(hz(chord.root + (i % 8 === 6 ? 12 : 0)), t, len * 1.8, 'triangle', 0.22); } // бас
+    note(hz(chord.arp[i % 4]), t, len * 0.9, 'square', 0.035);                                          // арпеджио
+    if (i % 4 === 0 && MELODY[bar][i / 4]) { note(hz(MELODY[bar][i / 4]), t, len * 3, 'square', 0.05); } // мелодия
+    if (i === 0 || i === 8) { note(hz(36), t, 0.12, 'sine', 0.3); }                                      // «бочка»
+    if (i % 2 === 1) { hat(t, i % 4 === 3 ? 0.07 : 0.04, 0.04); }                                       // хэт
+    if (i === 4 || i === 12) { hat(t, 0.1, 0.1); }                                                       // «малый»
+  }
+
+  function tick() {
+    const bpm = 118 + Math.min(wave, 10) * 3; // чем выше волна, тем быстрее
+    const len = 60 / bpm / 4;
+    while (nextTime < audioCtx.currentTime + 0.15) {
+      playStep(step, nextTime, len);
+      nextTime += len;
+      step = (step + 1) % (CHORDS.length * 16);
+    }
+  }
+
+  function play() {
+    if (timer) { return; }
+    try {
+      setup();
+      if (audioCtx.state === 'suspended') { audioCtx.resume(); }
+      const now = audioCtx.currentTime;
+      master.gain.cancelScheduledValues(now);
+      master.gain.setTargetAtTime(LEVEL, now, 0.15);
+      step = 0;
+      nextTime = now + 0.05;
+      timer = setInterval(tick, 40);
+      tick();
+    } catch { /* музыка не критична */ }
+  }
+
+  function stop() {
+    if (!timer) { return; }
+    clearInterval(timer);
+    timer = null;
+    try { master.gain.setTargetAtTime(0, audioCtx.currentTime, 0.08); } catch { /* ignore */ }
+  }
+
+  /** Музыка играет, пока идёт партия и звук не выключен */
+  function sync() { if (phase === 'playing' && !muted) { play(); } else { stop(); } }
+
+  return { sync };
+})();
+
 /* ---------- Размеры и ресайз ---------- */
 function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -259,10 +362,12 @@ function startGame() {
   hud.hidden = false;
   lastTs = performance.now();
   updateHud();
+  music.sync();
 }
 
 function endGame() {
   phase = 'over';
+  music.sync();
   sfx.over();
   const isRecord = score > best;
   if (isRecord) { best = score; saveBest(best); }
@@ -285,12 +390,14 @@ function setPaused(p) {
     el.stats.textContent = '';
     el.start.textContent = 'Продолжить';
     overlay.hidden = false;
+    music.sync();
   } else if (!p && phase === 'paused') {
     phase = 'playing';
     overlay.hidden = true;
     countdownLeft = RESUME_COUNTDOWN_MS;
     lastTickSec = 0;
     lastTs = performance.now();
+    music.sync();
   }
 }
 
@@ -713,6 +820,7 @@ function toggleSound() {
   el.sound.classList.toggle('off', muted);
   el.sound.setAttribute('aria-pressed', String(muted));
   try { localStorage.setItem('bug-hunter-fullscreen:muted', muted ? '1' : '0'); } catch { /* ignore */ }
+  music.sync();
 }
 function toggleFx() {
   fx = !fx;
