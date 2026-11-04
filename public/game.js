@@ -34,6 +34,9 @@ const BOSS_DESCENT_S = 40;       // за сколько секунд босс д
 const BOSS_MINION_MS = 2200;     // как часто босс выпускает мелких багов
 const BOSS_BONUS = 150;
 const BOSS_BONUS_STEP = 50;
+const BOSS_DROP_MS = 5500;       // как часто во время босса падают «укрепления» прода
+const SHIELD_CHARGES = 4;        // сколько прорывов гасит один щит
+const MAX_SHIELD = 8;
 const BOSS_REACH_DAMAGE = 4;     // половинок сердца: прорвавшийся босс отнимает 2 сердца
 const STORAGE_KEY = 'bug-hunter-fullscreen:best';
 const FX_KEY = 'bug-hunter-fullscreen:fx';
@@ -48,6 +51,12 @@ const BUG_KINDS = [
   { emoji: '', image: ALFA_IMAGE, points: 0, hp: 1, size: 50, minSpeed: 38, maxSpeed: 55, weight: 0.6, behavior: 'alfa' },
   { emoji: '🧊', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'freeze' },
   { emoji: '💣', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'bomb' },
+];
+
+// «укрепления»: падают только пока идёт бой с боссом
+const BOSS_DROPS = [
+  { emoji: '🛡️', points: 0, hp: 1, size: 34, minSpeed: 42, maxSpeed: 58, weight: 3, behavior: 'shield' },
+  { emoji: '🔧', points: 0, hp: 1, size: 32, minSpeed: 42, maxSpeed: 58, weight: 2, behavior: 'patch' },
 ];
 
 /* ---------- DOM ---------- */
@@ -88,7 +97,7 @@ const el = {
 
 /* ---------- Состояние ---------- */
 let W = 0, H = 0, DPR = 1, S = 1; // S — масштаб размеров/скоростей относительно окна
-let boss = null, bossesDefeated = 0, nextBossScore = BOSS_FIRST_SCORE;
+let boss = null, bossesDefeated = 0, nextBossScore = BOSS_FIRST_SCORE, shield = 0;
 let phase = 'idle'; // idle | playing | paused | over
 let bugs = [], splats = [], popups = [], particles = [];
 let score = 0, combo = 0, bestCombo = 0, kills = 0, lives = START_LIVES;
@@ -152,6 +161,9 @@ const sfx = {
   over: () => { tone(330, 0.3, 'sawtooth', 0.12, 110); tone(165, 0.5, 'sawtooth', 0.12, 55, 0.25); },
   bossIn: () => { tone(110, 0.5, 'sawtooth', 0.14, 220); tone(165, 0.5, 'square', 0.08, 330, 0.25); },
   bossHit: () => tone(160, 0.07, 'square', 0.09, 100),
+  shieldUp: () => { tone(660, 0.1, 'triangle', 0.1); tone(990, 0.16, 'triangle', 0.1, null, 0.07); },
+  shieldHit: () => tone(880, 0.12, 'triangle', 0.12, 440),
+  patch: () => { tone(523, 0.1, 'sine', 0.1); tone(784, 0.16, 'sine', 0.1, null, 0.08); },
   bossDown: () => { [262, 330, 392, 523, 659, 784].forEach((f, i) => tone(f, 0.2, 'triangle', 0.12, null, i * 0.08)); tone(65, 0.6, 'sawtooth', 0.12, 30); },
 };
 
@@ -366,7 +378,7 @@ function resetGame() {
   score = 0; combo = 0; bestCombo = 0; kills = 0; lives = START_LIVES;
   elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS;
   slowLeft = 0; countdownLeft = 0;
-  boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE;
+  boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE; shield = 0;
   run = newRunStats();
   banner = null; shake = 0; flash = 0;
 }
@@ -418,7 +430,15 @@ function setPaused(p) {
   }
 }
 
-function loseLife() {
+function loseLife(x = W / 2) {
+  if (shield > 0) { // щит гасит прорыв: сердце не тратится, комбо не сбрасывается
+    shield -= 1;
+    burst(x, prodY(), '#7fd8ff', 12);
+    shake = Math.max(shake, 0.12);
+    sfx.shieldHit();
+    updateHud();
+    return;
+  }
   lives -= 1;
   run.livesLost += 1;
   combo = 0;
@@ -500,10 +520,24 @@ function detonate(b) {
 }
 
 /* ---------- Босс ---------- */
+function pickDrop() {
+  const total = BOSS_DROPS.reduce((s, k) => s + k.weight, 0);
+  let r = Math.random() * total;
+  for (const k of BOSS_DROPS) {
+    r -= k.weight;
+    if (r <= 0) { return k; }
+  }
+  return BOSS_DROPS[0];
+}
+
+function addShield(n) {
+  shield = Math.min(MAX_SHIELD, shield + n);
+}
+
 function spawnBoss() {
   const size = Math.max(BOSS_SIZE * S, 96); // на телефоне масштаб S мал — босс не должен стать крошечным
   const maxHp = BOSS_HP_BASE + BOSS_HP_STEP * bossesDefeated;
-  boss = { x: W / 2, y: -size, size, hp: maxHp, maxHp, phase: 0, flash: 0, minionTimer: BOSS_MINION_MS * 0.5 };
+  boss = { x: W / 2, y: -size, size, hp: maxHp, maxHp, phase: 0, flash: 0, minionTimer: BOSS_MINION_MS * 0.5, dropTimer: BOSS_DROP_MS * 0.6 };
   showBanner('Завали Босса!', '#ff5470');
   sfx.bossIn();
   shake = Math.max(shake, 0.25);
@@ -558,18 +592,26 @@ function updateBoss(dt, pace) {
     const descent = Math.max(25, BOSS_DESCENT_S - 3 * bossesDefeated);
     boss.y += ((line - topY) / descent) * dt * pace;
   }
+  boss.dropTimer -= dt * 1000;
+  if (boss.dropTimer <= 0 && boss.y > 0) {
+    boss.dropTimer = BOSS_DROP_MS;
+    if (bugs.length < MAX_BUGS) { spawnBug(pickDrop()); }
+  }
   boss.minionTimer -= dt * 1000 * pace;
   if (boss.minionTimer <= 0 && boss.y > 0) {
     boss.minionTimer = Math.max(1100, BOSS_MINION_MS - 250 * bossesDefeated);
     if (bugs.length < MAX_BUGS) { spawnBug(BUG_KINDS[Math.floor(Math.random() * 3)], boss.x, boss.y + boss.size * 0.4, false, 1.4); }
   }
   if (boss.y + boss.size * 0.35 >= line) {
-    addSplat(boss.x, line);
+    const bx = boss.x;
+    addSplat(bx, line);
     boss = null;
     nextBossScore = score + BOSS_EVERY_SCORE;
-    showBanner('Босс прорвался! −2 сердца', '#ff5470');
+    if (shield >= BOSS_REACH_DAMAGE) { showBanner('Щит выдержал прорыв босса!', '#7fd8ff'); }
+    else if (shield > 0) { showBanner('Босс прорвался! Щит поглотил часть', '#ff5470'); }
+    else { showBanner('Босс прорвался! −2 сердца', '#ff5470'); }
     for (let i = 0; i < BOSS_REACH_DAMAGE; i++) {
-      loseLife();
+      loseLife(bx);
       if (phase !== 'playing') { return false; }
     }
   }
@@ -610,6 +652,23 @@ function handleClick(px, py) {
   } else if (target.behavior === 'alfa') {
     bugs = bugs.filter((x) => x.id !== target.id);
     eatEverything();
+  } else if (target.behavior === 'shield') {
+    bugs = bugs.filter((x) => x.id !== target.id);
+    addShield(SHIELD_CHARGES);
+    burst(target.x, target.y, '#7fd8ff', 14);
+    addPopup(target.x, target.y - target.size * 0.5, `Щит ×${shield}`, '#7fd8ff');
+    sfx.shieldUp();
+  } else if (target.behavior === 'patch') {
+    bugs = bugs.filter((x) => x.id !== target.id);
+    burst(target.x, target.y, BRAND, 14);
+    if (lives < MAX_LIVES) {
+      lives += 1;
+      addPopup(target.x, target.y - target.size * 0.5, '+½ сердца', BRAND);
+    } else { // сердца полные — патч превращается в заряд щита
+      addShield(1);
+      addPopup(target.x, target.y - target.size * 0.5, 'Щит +1', '#7fd8ff');
+    }
+    sfx.patch();
   } else if (target.behavior === 'freeze') {
     bugs = bugs.filter((x) => x.id !== target.id);
     activateFreeze(target);
@@ -681,7 +740,7 @@ function update(dt) {
       bugs = bugs.filter((x) => x.id !== b.id);
       if (b.behavior === 'normal' || b.behavior === 'splitter' || b.behavior === 'golden') {
         addSplat(b.x, line);
-        loseLife();
+        loseLife(b.x);
         if (phase !== 'playing') { return; }
       }
     }
@@ -735,12 +794,22 @@ function drawProdLine() {
   ctx.setLineDash([14, 9]);
   ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = 'rgba(255, 120, 140, 0.9)';
+  if (shield > 0) {
+    ctx.save();
+    ctx.strokeStyle = '#7fd8ff';
+    ctx.lineWidth = 4;
+    ctx.shadowColor = '#7fd8ff';
+    ctx.shadowBlur = 14;
+    ctx.globalAlpha = 0.7 + 0.3 * Math.sin(performance.now() / 200);
+    ctx.beginPath(); ctx.moveTo(0, y - 3); ctx.lineTo(W, y - 3); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.fillStyle = shield > 0 ? 'rgba(160, 225, 255, 0.95)' : 'rgba(255, 120, 140, 0.9)';
   ctx.font = `700 ${Math.round(13 * S)}px ${FONT_UI}`;
   ctx.letterSpacing = `${Math.round(3 * S)}px`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('PRODUCTION', W / 2, y + (H - y) / 2);
+  ctx.fillText(shield > 0 ? `PRODUCTION · ЩИТ ×${shield}` : 'PRODUCTION', W / 2, y + (H - y) / 2);
   ctx.letterSpacing = '0px';
 }
 
@@ -795,6 +864,12 @@ function drawBugs() {
     } else if (b.behavior === 'alfa') {
       ctx.shadowColor = '#ef3124';
       ctx.shadowBlur = 20;
+    } else if (b.behavior === 'shield') {
+      ctx.shadowColor = '#7fd8ff';
+      ctx.shadowBlur = 18;
+    } else if (b.behavior === 'patch') {
+      ctx.shadowColor = BRAND;
+      ctx.shadowBlur = 18;
     }
     if (img) {
       const h = b.size * 1.15;
