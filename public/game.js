@@ -705,6 +705,7 @@ function primaryAction() {
 }
 
 el.start.addEventListener('click', primaryAction);
+if (window.matchMedia('(min-width: 561px)').matches) { el.help.open = true; } // на телефоне легенда свёрнута
 el.full.addEventListener('click', toggleFullscreen);
 el.sound.addEventListener('click', toggleSound);
 el.fx.addEventListener('click', toggleFx);

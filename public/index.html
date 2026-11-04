@@ -7,6 +7,9 @@
   <meta name="description" content="Bug Hunter — браузерная аркада: устраняйте баги до релиза и соревнуйтесь в рейтинге.">
   <meta name="theme-color" content="#0b0f1a">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Unbounded:wght@600;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -54,43 +57,64 @@
 
   <div id="overlay" class="overlay">
     <div class="card">
-      <h1 id="ov-title">Bug Hunter</h1>
-      <p id="ov-text">Баги ползут к продакшену. Устраняйте их кликом, пока они не пересекли красную линию.</p>
-      <ul id="ov-help" class="help">
-        <li>🐛 🐞 🪲 — обычные баги, у 🪲 два хп</li>
-        <li>🪳 — при смерти делится на мелких</li>
-        <li>🐝 — золотой: бонус и пауза появления</li>
-        <li>🐌 — приманка: клик по ней снимает очки</li>
-        <li><img class="help-icon" src="assets/alfa-bonus.png" alt="Альфа-Бонус"> — Альфа-Бонус: устраняет всех багов на экране и возвращает жизнь</li>
-        <li>🧊 — Code freeze: баги замедляются на 4 секунды</li>
-        <li>💣 — Hotfix: взрыв устраняет всех багов вокруг</li>
-      </ul>
+      <header class="card-head">
+        <img class="logo" src="favicon.svg" alt="" width="44" height="44">
+        <div>
+          <h1 id="ov-title">Bug Hunter</h1>
+          <p id="ov-text">Баги ползут к продакшену. Кликайте по ним, пока они не пересекли красную линию.</p>
+        </div>
+      </header>
+
+      <details id="ov-help" class="help">
+        <summary>Кто есть кто</summary>
+        <ul>
+          <li><span class="ic">🐛 🐞 🪲</span><span>Обычные баги<small>у 🪲 два хп</small></span></li>
+          <li><span class="ic">🪳</span><span>Делится<small>на смерти — на мелких</small></span></li>
+          <li><span class="ic">🐝</span><span>Золотой<small>бонус очков</small></span></li>
+          <li><span class="ic">🐌</span><span>Приманка<small>клик снимает очки</small></span></li>
+          <li><span class="ic"><img class="help-icon" src="assets/alfa-bonus.png" alt=""></span><span>Альфа-Бонус<small>чистит экран, +1 жизнь</small></span></li>
+          <li><span class="ic">🧊</span><span>Code freeze<small>баги медленнее на 4 с</small></span></li>
+          <li><span class="ic">💣</span><span>Hotfix<small>взрыв вокруг</small></span></li>
+        </ul>
+      </details>
+
       <p id="ov-stats" class="stats"></p>
+
       <div id="auth" class="auth">
         <form id="auth-form" autocomplete="on">
           <input id="auth-user" name="username" placeholder="Имя" maxlength="20" autocomplete="username">
           <input id="auth-pass" name="password" type="password" placeholder="Пароль" maxlength="72" autocomplete="current-password">
           <div class="auth-row">
             <button type="submit" id="btn-login" class="secondary">Войти</button>
-            <button type="button" id="btn-register" class="secondary">Регистрация</button>
+            <button type="button" id="btn-register" class="secondary ghost">Регистрация</button>
           </div>
         </form>
         <p id="auth-error" class="error" hidden></p>
         <p class="hint">Без входа можно играть, но очки не попадут в рейтинг.</p>
       </div>
+
       <div id="me" class="me" hidden>
-        <span id="me-avatar" class="avatar" aria-hidden="true"></span>
-        <div class="me-info">
-          <span><b id="me-name"></b> <span id="me-title" class="chip"></span></span>
-          <small>партий: <b id="me-games">0</b> · рекорд: <b id="me-best">0</b> · убито: <b id="me-kills">0</b></small>
+        <div class="me-top">
+          <span id="me-avatar" class="avatar" aria-hidden="true"></span>
+          <div class="me-info">
+            <span class="me-name"><b id="me-name"></b> <span id="me-title" class="chip"></span></span>
+            <button id="btn-logout" class="link">Выйти</button>
+          </div>
+          <button id="btn-cabinet" class="secondary">Кабинет</button>
         </div>
-        <button id="btn-cabinet" class="secondary">Кабинет</button>
-        <button id="btn-logout" class="link">Выйти</button>
+        <dl class="me-stats">
+          <div><dt>партий</dt><dd id="me-games">0</dd></div>
+          <div><dt>рекорд</dt><dd id="me-best">0</dd></div>
+          <div><dt>убито</dt><dd id="me-kills">0</dd></div>
+        </dl>
       </div>
+
       <p id="save-status" class="stats small" hidden></p>
-      <button id="btn-start" class="primary">Играть</button>
-      <button id="btn-board" class="secondary wide">Рейтинг</button>
-      <p class="hint keys">Space или Enter — старт · P — пауза · R — заново · C — кабинет · L — рейтинг · F — экран · M — звук · V — эффекты</p>
+      <div class="actions">
+        <button id="btn-start" class="primary">Играть</button>
+        <button id="btn-board" class="secondary">Рейтинг</button>
+      </div>
+      <p class="hint keys"><kbd>Space</kbd> старт · <kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>F</kbd> экран · <kbd>M</kbd> звук</p>
     </div>
   </div>
 
