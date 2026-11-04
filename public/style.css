@@ -315,20 +315,23 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
 
 @media (hover: none) { .hint.keys { display: none; } }
 @media (max-width: 560px) {
-  #hud { right: 16px; top: 60px; }
-  #tools { gap: 6px; }
+  #tools { top: 10px; right: 12px; gap: 6px; }
   /* карточка начинается под панелью значков и компактнее */
   .overlay { padding: 64px 12px 16px; }
   .card { padding: 20px 16px 16px; border-radius: 16px; }
   .card h1 { font-size: 20px; }
   .help ul { grid-template-columns: 1fr; }
-  .hud-item { flex: 1 1 0; min-width: 0; padding: 4px 8px; border-radius: 8px; }
-  .hud-item:nth-child(3) { flex-grow: 1.6; }
-  .hud-label { font-size: 9px; letter-spacing: .04em; }
-  .hud-item span:last-child { font-size: 17px; }
-  #hud-lives { letter-spacing: 0; font-size: 14px !important; white-space: nowrap; }
-  /* пока открыт оверлей, у него есть своя кнопка «Рейтинг» — язычок только мешает */
-  body:has(#overlay:not([hidden])) .drawer-handle:not(.open) { display: none; }
+  /* во время игры верх — одна тонкая строка: счёт, комбо, жизни слева и пауза справа */
+  #hud { top: 10px; left: 12px; right: 64px; gap: 6px; flex-wrap: nowrap; }
+  .hud-item { flex: 1 1 0; min-width: 0; height: 40px; padding: 2px 8px; border-radius: 8px; justify-content: center; }
+  .hud-item:nth-child(3) { flex-grow: 1.5; }
+  .hud-item:nth-child(4) { display: none; } /* рекорд виден в итогах */
+  .hud-label { font-size: 9px; line-height: 1.1; letter-spacing: .04em; }
+  .hud-item span:last-child { font-size: 16px; line-height: 1.15; }
+  #hud-lives { letter-spacing: 0; font-size: 12px !important; white-space: nowrap; }
+  body:has(#overlay[hidden]) #tools button:not(#btn-pause) { display: none; }
+  body:has(#overlay:not([hidden])) #hud { display: none; }
+  .drawer-handle:not(.open) { display: none; } /* на телефоне рейтинг открывается кнопкой на стартовом экране и паузе */
   /* шторки на всю ширину: значки лежали поверх и закрывали кнопку «×» */
   body[data-panel] #tools { display: none; }
   .drawer-handle.open { display: none; }
