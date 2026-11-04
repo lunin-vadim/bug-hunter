@@ -276,6 +276,107 @@ button.primary.small { font-size: 15px; padding: 10px 24px; }
 button.danger-btn { color: #ff5470; border-color: rgba(255, 84, 112, .5); }
 button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
 
+/* ---------- Ранги: значок, карточка в кабинете, награды ---------- */
+.rank-badge {
+  --s: 24px;
+  position: relative; display: inline-grid; place-items: center; flex: none; width: var(--s); height: calc(var(--s) * 1.12);
+  clip-path: polygon(50% 0, 94% 25%, 94% 75%, 50% 100%, 6% 75%, 6% 25%);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--rank) 70%, #fff), var(--rank) 55%, color-mix(in srgb, var(--rank) 50%, #000));
+}
+.rank-badge::before {
+  content: ''; position: absolute; inset: calc(var(--s) * 0.07);
+  clip-path: polygon(50% 0, 94% 25%, 94% 75%, 50% 100%, 6% 75%, 6% 25%);
+  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--rank) 30%, #1d222c), #0e1117 80%);
+}
+.rank-badge > span { position: relative; z-index: 1; font-size: calc(var(--s) * 0.5); line-height: 1; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .5)); }
+.rank-badge.sm { --s: 20px; }
+.rank-badge.md { --s: 46px; }
+.rank-badge.xl { --s: 112px; filter: drop-shadow(0 0 22px color-mix(in srgb, var(--rank) 70%, transparent)); }
+.rank-badge.off { filter: grayscale(1) brightness(.55); }
+.who-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.me-name .rank-badge { margin-right: 2px; vertical-align: -4px; }
+/* сияние вокруг аватара с ранга Сеньор: чем выше ранг, тем заметнее */
+.avatar[data-tier="3"] { box-shadow: 0 0 10px -1px color-mix(in srgb, var(--rank) 55%, transparent); }
+.avatar[data-tier="4"] { box-shadow: 0 0 16px 0 color-mix(in srgb, var(--rank) 70%, transparent); }
+.avatar[data-tier="5"] { box-shadow: 0 0 22px 1px color-mix(in srgb, var(--rank) 80%, transparent); outline: 2px solid color-mix(in srgb, var(--rank) 55%, transparent); outline-offset: 3px; }
+
+.rank-card {
+  margin: 12px 0 4px; padding: 14px; border: 1px solid color-mix(in srgb, var(--rank) 35%, transparent); border-radius: 16px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--rank) 14%, var(--surface)), var(--surface) 70%);
+}
+.rank-head { display: flex; align-items: center; gap: 14px; }
+.rank-title { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.rank-title small, .rank-kills small { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.rank-title b { font-family: var(--font-display); font-size: 20px; letter-spacing: -.01em; color: var(--rank); }
+.rank-kills { display: flex; flex-direction: column; align-items: flex-end; }
+.rank-kills b { font-family: var(--font-display); font-size: 18px; font-variant-numeric: tabular-nums; }
+.rank-card .rank-bar { margin-top: 12px; }
+.rank-card .rank-fill { background: var(--rank); box-shadow: 0 0 10px color-mix(in srgb, var(--rank) 60%, transparent); }
+.rank-card .hint { margin: 8px 0 0; }
+.rank-steps { position: relative; display: flex; justify-content: space-between; margin: 14px 0 0; padding: 0; list-style: none; }
+.rank-steps::before { content: ''; position: absolute; left: 8%; right: 8%; top: 16px; height: 2px; background: rgba(255, 255, 255, .1); }
+.rank-steps > li { flex: 1; display: flex; }
+.rank-step { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 0; color: inherit; font: inherit; cursor: pointer; background: none; border: 0; }
+.rank-step .rank-badge { --s: 32px; transition: transform .15s; }
+.rank-step:hover .rank-badge { transform: translateY(-2px); }
+.rank-step small { font-size: 10px; font-weight: 600; color: var(--muted); }
+.rank-step.current small, .rank-step.selected small { color: var(--rank); }
+.rank-step.current .rank-badge { animation: rank-pulse 2s ease-in-out infinite; }
+.rank-step.selected::after { content: ''; position: absolute; bottom: -8px; width: 22px; height: 3px; border-radius: 3px; background: var(--rank); }
+.rank-detail { margin-top: 18px; padding: 12px; background: rgba(0, 0, 0, .22); border-radius: 12px; }
+.rd-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.rd-head b { color: var(--rank); font-size: 15px; }
+.rd-head span { font-size: 12px; color: var(--muted); text-align: right; }
+.rd-perk { margin: 6px 0 10px; font-size: 13px; color: var(--muted); }
+.rd-unlocks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rd-chip { display: grid; place-items: center; min-width: 32px; height: 32px; padding: 0 8px; font-size: 17px; background: rgba(255, 255, 255, .06); border-radius: 9px; }
+.rd-chip.text { font-size: 12px; font-weight: 600; }
+.rd-dot { width: 20px; height: 20px; border-radius: 50%; background: var(--c); border: 2px solid rgba(255, 255, 255, .25); }
+.rd-chip.locked { opacity: .45; filter: grayscale(.6); }
+@keyframes rank-pulse { 0%, 100% { filter: drop-shadow(0 0 0 transparent); } 50% { filter: drop-shadow(0 0 8px var(--rank)); } }
+
+/* заблокированные награды в профиле */
+.avatar-opt.locked, .swatch.locked, .title-opt.locked { position: relative; cursor: not-allowed; opacity: .4; filter: grayscale(.7); }
+.avatar-opt.locked::after, .swatch.locked::after { content: '🔒'; position: absolute; right: 2px; bottom: 0; font-size: 11px; }
+.avatar-opt.locked:hover { background: rgba(255, 255, 255, .06); }
+#cab-color:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ---------- Повышение ранга ---------- */
+.rankup {
+  position: fixed; inset: 0; z-index: 7; display: grid; place-items: center; padding: 16px;
+  background: rgba(5, 7, 12, .78); backdrop-filter: blur(4px); animation: rankup-fade .25s ease;
+}
+.rankup[hidden] { display: none; }
+.rankup-card {
+  position: relative; width: min(420px, 100%); padding: 28px 22px 20px; text-align: center; overflow: hidden;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rank) 18%, var(--surface)), var(--surface) 55%);
+  border: 1px solid color-mix(in srgb, var(--rank) 45%, transparent); border-radius: 22px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .6), 0 0 60px -10px color-mix(in srgb, var(--rank) 50%, transparent);
+  animation: rankup-in .5s cubic-bezier(.2, 1.2, .3, 1);
+}
+.rankup-stage { position: relative; display: grid; place-items: center; height: 170px; }
+.rankup-rays {
+  position: absolute; width: 340px; height: 340px; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--rank) 38%, transparent) 0 7deg, transparent 7deg 22deg);
+  -webkit-mask: radial-gradient(circle, #000 8%, transparent 62%); mask: radial-gradient(circle, #000 8%, transparent 62%);
+  animation: rankup-spin 22s linear infinite;
+}
+.rankup-stage .rank-badge { position: relative; animation: rankup-pop .7s cubic-bezier(.2, 1.4, .3, 1) .15s backwards; }
+.rankup-spark { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: var(--rank); opacity: 0; animation: rankup-spark 1.4s ease-out calc(var(--i) * 45ms + .3s) both; }
+.rankup-kicker { margin: 4px 0 2px; font-size: 11px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.rankup-card h2 { margin: 0; font-family: var(--font-display); font-size: 30px; letter-spacing: -.01em; color: var(--rank); text-shadow: 0 0 24px color-mix(in srgb, var(--rank) 50%, transparent); }
+.rankup-open { margin: 16px 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.rankup-unlocks { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.rankup-perk { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+.rankup-actions { display: flex; gap: 8px; margin-top: 20px; }
+.rankup-actions .primary { flex: 2; margin: 0; }
+.rankup-actions .secondary { flex: 1; }
+@keyframes rankup-fade { from { opacity: 0; } }
+@keyframes rankup-in { from { opacity: 0; transform: translateY(24px) scale(.94); } }
+@keyframes rankup-pop { from { opacity: 0; transform: scale(.2) rotate(-25deg); } }
+@keyframes rankup-spin { to { transform: rotate(360deg); } }
+@keyframes rankup-spark { 0% { opacity: 1; transform: translate(0, 0) scale(1); } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.2); } }
+
 /* ---------- Уведомления ---------- */
 #toasts {
   position: fixed; left: 50%; bottom: 16px; z-index: 5; display: flex; flex-direction: column; gap: 8px;
@@ -346,9 +447,15 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
   .drawer .tabs { margin: 12px 12px 4px; }
   .drawer-body { padding: 0 12px 16px; }
   .board { font-size: 14px; }
+  .rank-card { padding: 12px; }
+  .rank-title b { font-size: 17px; }
+  .rank-step small { font-size: 9px; }
+  .rankup-card h2 { font-size: 26px; }
   .who-info b, .who-info small { max-width: 110px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .drawer, .drawer-handle, .rank-fill, #tools { transition: none; }
   .toast, .toast-list li { animation: none; }
+  .rankup, .rankup-card, .rankup-rays, .rankup-stage .rank-badge, .rankup-spark, .rank-step.current .rank-badge { animation: none; }
+  .rankup-spark { display: none; }
 }

@@ -193,6 +193,7 @@ const sfx = {
   bossHit: () => tone(160, 0.07, 'square', 0.09, 100),
   event: () => { tone(440, 0.12, 'square', 0.1); tone(660, 0.12, 'square', 0.1, null, 0.1); tone(880, 0.22, 'square', 0.1, null, 0.2); },
   fever: () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.12, 'square', 0.08, null, i * 0.06)); },
+  rankUp: () => { [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, 0.22, 'triangle', 0.12, null, i * 0.1)); tone(131, 0.7, 'sawtooth', 0.08, 65, 0.1); },
   shieldUp: () => { tone(660, 0.1, 'triangle', 0.1); tone(990, 0.16, 'triangle', 0.1, null, 0.07); },
   shieldHit: () => tone(880, 0.12, 'triangle', 0.12, 440),
   patch: () => { tone(523, 0.1, 'sine', 0.1); tone(784, 0.16, 'sine', 0.1, null, 0.08); },
@@ -1234,6 +1235,10 @@ function renderUser() {
     el.meAvatar.textContent = currentUser.avatar || '🐛';
     el.me.style.setProperty('--accent', currentUser.color || '#35c4ff');
     el.meTitle.textContent = currentUser.title || '';
+    if (currentUser.tier) {
+      document.getElementById('me-badge').replaceChildren(rankBadge(currentUser.tier, 'sm'));
+      applyTier(el.meAvatar, currentUser.tier);
+    }
     el.meKills.textContent = currentUser.totalKills;
     el.meGames.textContent = currentUser.gamesPlayed;
     el.meBest.textContent = currentUser.bestScore;
@@ -1283,12 +1288,102 @@ async function submitResult(finalScore, finalKills, durationMs) {
     currentUser = data.user;
     renderUser();
     el.saveStatus.textContent = `Сохранено · всего убито: ${currentUser.totalKills}`;
-    if (data.newRank) { toast('🎖️', 'Новый ранг', data.newRank); }
+    if (data.newRank) { setTimeout(() => showRankUp(data.newRank), 900); } // даём увидеть итоги партии
     toastAchievements(data.newAchievements || []);
   } catch (e) {
     el.saveStatus.textContent = `Результат не сохранён: ${e.message}`;
   }
 }
+
+/* ---------- Ранги: значок и окно повышения ---------- */
+/** Шестиугольный значок ранга; `tier` — { name, icon, color } из API */
+function rankBadge(tier, size = 'sm') {
+  const badge = document.createElement('span');
+  badge.className = `rank-badge ${size}`;
+  badge.style.setProperty('--rank', tier.color);
+  badge.title = tier.name;
+  const icon = document.createElement('span');
+  icon.textContent = tier.icon;
+  badge.append(icon);
+  return badge;
+}
+
+/** Цвет ранга и уровень на элементе — по ним CSS рисует сияние вокруг аватара */
+function applyTier(node, tier) {
+  node.dataset.tier = tier.level;
+  node.style.setProperty('--rank', tier.color);
+}
+
+/** Награды ранга в виде плашек: аватары, цвета профиля, свой цвет */
+function unlockChips(unlocks) {
+  const frag = document.createDocumentFragment();
+  for (const a of unlocks.avatars) {
+    const chip = document.createElement('span');
+    chip.className = 'rd-chip';
+    chip.textContent = a;
+    frag.append(chip);
+  }
+  for (const c of unlocks.colors) {
+    const chip = document.createElement('span');
+    chip.className = 'rd-chip';
+    const dot = document.createElement('i');
+    dot.className = 'rd-dot';
+    dot.style.setProperty('--c', c);
+    chip.append(dot);
+    frag.append(chip);
+  }
+  if (unlocks.customColor) {
+    const chip = document.createElement('span');
+    chip.className = 'rd-chip text';
+    chip.textContent = '🎨 Свой цвет';
+    frag.append(chip);
+  }
+  return frag;
+}
+
+const rankup = document.getElementById('rankup');
+let rankupKey = null;
+
+function hideRankUp() {
+  rankup.hidden = true;
+  if (document.body.dataset.panel === 'rankup') { delete document.body.dataset.panel; }
+  if (rankupKey) { document.removeEventListener('keydown', rankupKey); rankupKey = null; }
+}
+
+/** Праздничная карточка при повышении ранга: большой значок, лучи, искры и список открытых наград */
+function showRankUp(rank) {
+  if (!rankup || !rank) { return; }
+  rankup.style.setProperty('--rank', rank.color);
+  const stage = rankup.querySelector('.rankup-stage');
+  stage.querySelectorAll('.rankup-spark').forEach((n) => n.remove());
+  for (let i = 0; i < 18; i++) {
+    const spark = document.createElement('i');
+    const a = (Math.PI * 2 * i) / 18 + Math.random() * 0.3;
+    const d = 90 + Math.random() * 70;
+    spark.className = 'rankup-spark';
+    spark.style.setProperty('--i', i);
+    spark.style.setProperty('--dx', `${Math.cos(a) * d}px`);
+    spark.style.setProperty('--dy', `${Math.sin(a) * d}px`);
+    stage.append(spark);
+  }
+  document.getElementById('rankup-badge').replaceChildren(rankBadge(rank, 'xl'));
+  document.getElementById('rankup-name').textContent = rank.name;
+  document.getElementById('rankup-unlocks').replaceChildren(unlockChips(rank.unlocks));
+  document.getElementById('rankup-perk').textContent = rank.unlocks.perk;
+  rankup.hidden = false;
+  document.body.dataset.panel = 'rankup'; // блокирует горячие клавиши игры, пока окно открыто
+  sfx.rankUp();
+  document.getElementById('rankup-ok').focus({ preventScroll: true });
+  rankupKey = (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); hideRankUp(); } };
+  document.addEventListener('keydown', rankupKey);
+}
+
+document.getElementById('rankup-ok').addEventListener('click', hideRankUp);
+document.getElementById('rankup-cabinet').addEventListener('click', () => {
+  hideRankUp();
+  document.getElementById('btn-cabinet').click();
+});
+rankup.addEventListener('click', (e) => { if (e.target === rankup) { hideRankUp(); } });
 
 /** Всплывающее уведомление (контейнер #toasts в index.html) */
 function toast(icon, title, text) {

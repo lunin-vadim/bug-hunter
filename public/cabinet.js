@@ -10,13 +10,13 @@
   const root = $('cabinet');
   const profileBtn = $('btn-profile');
   const openBtn = $('btn-cabinet');
-  const SWATCHES = ['#35c4ff', '#7cf29a', '#ffd166', '#ff5470', '#c792ea', '#ff9f43', '#4dd0e1', '#f78fb3'];
   const DELETE_WORD = 'УДАЛИТЬ';
 
   let profile = null;
   let isOpen = false;
   // несохранённый выбор во вкладке «Профиль»
   let draft = { avatar: '🐛', color: '#35c4ff', title: null };
+  let rankSel = null; // какой ранг выбран на лестнице (показываем его награды)
 
   const make = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -55,11 +55,8 @@
     $('cab-name').textContent = user.username;
     $('cab-chip').textContent = user.title;
     $('cab-status').textContent = user.status || '';
-    const next = rank.next;
-    $('cab-rank-fill').style.width = `${next ? Math.min(100, Math.round((stats.totalKills / next.minKills) * 100)) : 100}%`;
-    $('cab-rank-text').textContent = next
-      ? `Ранг «${rank.name}» · до «${next.name}» ещё ${next.minKills - stats.totalKills} багов`
-      : `Ранг «${rank.name}» — максимальный`;
+    applyTier(av, rank);
+    renderRank();
 
     const tiles = [
       ['За раз', stats.bestKillsGame, 'Максимум багов за одну партию'],
@@ -81,15 +78,68 @@
     }
   }
 
+  const fmt = (n) => Number(n).toLocaleString('ru-RU');
+
+  /** Карточка ранга: значок, прогресс внутри ранга, лестница и награды выбранной ступени */
+  function renderRank() {
+    const { rank, ladder, stats } = profile;
+    $('cab-rank').style.setProperty('--rank', rank.color);
+    $('cab-rank-badge').replaceChildren(rankBadge(rank, 'md'));
+    $('cab-rank-name').textContent = rank.name;
+    $('cab-rank-kills').textContent = fmt(stats.totalKills);
+    $('cab-rank-fill').style.width = `${Math.round(rank.ratio * 100)}%`;
+    $('cab-rank-text').textContent = rank.next
+      ? `До «${rank.next.name}» ещё ${fmt(rank.remaining)} багов`
+      : 'Высший ранг. Выше только слава';
+    if (rankSel === null) {
+      rankSel = rank.next ? ladder.findIndex((r) => r.name === rank.next.name) : ladder.length - 1;
+    }
+    const steps = $('cab-rank-steps');
+    steps.textContent = '';
+    ladder.forEach((r, i) => {
+      const li = make('li');
+      const btn = make('button', `rank-step${r.current ? ' current' : ''}${i === rankSel ? ' selected' : ''}`);
+      btn.type = 'button';
+      btn.style.setProperty('--rank', r.color);
+      btn.setAttribute('aria-label', `${r.name}: ${r.reached ? 'получен' : `с ${fmt(r.minKills)} убитых`}`);
+      btn.setAttribute('aria-pressed', String(i === rankSel));
+      const badge = rankBadge(r, 'sm');
+      if (!r.reached) { badge.classList.add('off'); }
+      btn.append(badge, make('small', null, r.name));
+      btn.addEventListener('click', () => { rankSel = i; renderRank(); });
+      li.append(btn);
+      steps.append(li);
+    });
+    renderRankDetail();
+  }
+
+  function renderRankDetail() {
+    const r = profile.ladder[rankSel];
+    const box = $('cab-rank-detail');
+    box.style.setProperty('--rank', r.color);
+    box.textContent = '';
+    const status = r.current ? 'Текущий ранг'
+      : r.reached ? 'Пройден'
+        : `Ещё ${fmt(r.minKills - profile.stats.totalKills)} багов · с ${fmt(r.minKills)} убитых`;
+    const head = make('div', 'rd-head');
+    head.append(make('b', null, r.name), make('span', null, status));
+    const chips = make('div', 'rd-unlocks');
+    chips.append(unlockChips(r.unlocks));
+    if (!r.reached) { chips.querySelectorAll('.rd-chip').forEach((n) => n.classList.add('locked')); }
+    box.append(head, make('p', 'rd-perk', r.unlocks.perk), chips);
+  }
+
   function renderAvatars() {
     const box = $('cab-avatars');
     box.textContent = '';
-    for (const a of profile.options.avatars) {
-      const b = make('button', 'avatar-opt', a);
+    for (const o of profile.options.avatars) {
+      const b = make('button', `avatar-opt${o.locked ? ' locked' : ''}`, o.value);
       b.type = 'button';
-      b.setAttribute('aria-pressed', String(a === draft.avatar));
-      b.setAttribute('aria-label', `Аватар ${a}`);
-      b.addEventListener('click', () => { draft.avatar = a; renderAvatars(); renderHeader(); });
+      b.disabled = o.locked;
+      b.setAttribute('aria-pressed', String(o.value === draft.avatar));
+      b.setAttribute('aria-label', o.locked ? `Аватар ${o.value}: откроется на ранге «${o.rank}»` : `Аватар ${o.value}`);
+      if (o.locked) { b.title = `Откроется на ранге «${o.rank}»`; }
+      b.addEventListener('click', () => { draft.avatar = o.value; renderAvatars(); renderHeader(); });
       box.append(b);
     }
   }
@@ -97,16 +147,21 @@
   function renderColors() {
     const box = $('cab-swatches');
     box.textContent = '';
-    for (const c of SWATCHES) {
-      const b = make('button', 'swatch');
+    for (const o of profile.options.colors) {
+      const b = make('button', `swatch${o.locked ? ' locked' : ''}`);
       b.type = 'button';
-      b.style.setProperty('--sw', c);
-      b.setAttribute('aria-pressed', String(c === draft.color));
-      b.setAttribute('aria-label', `Цвет ${c}`);
-      b.addEventListener('click', () => { draft.color = c; renderColors(); renderHeader(); });
+      b.disabled = o.locked;
+      b.style.setProperty('--sw', o.value);
+      b.setAttribute('aria-pressed', String(o.value === draft.color));
+      b.setAttribute('aria-label', o.locked ? `Цвет ${o.value}: откроется на ранге «${o.rank}»` : `Цвет ${o.value}`);
+      if (o.locked) { b.title = `Откроется на ранге «${o.rank}»`; }
+      b.addEventListener('click', () => { draft.color = o.value; renderColors(); renderHeader(); });
       box.append(b);
     }
+    const custom = profile.options.customColor;
     $('cab-color').value = draft.color;
+    $('cab-color').disabled = custom.locked;
+    $('cab-color-hint').textContent = custom.locked ? `Свой цвет и остальные оттенки откроются с новыми рангами; своя палитра — на ранге «${custom.rank}»` : '';
   }
 
   function renderTitles() {

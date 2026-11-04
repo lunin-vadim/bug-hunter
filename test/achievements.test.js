@@ -114,3 +114,65 @@ test('parseGameExtra: отклоняет недостижимые значени
   assert.ok(ach.parseGameExtra({ bestCombo: 1.5 }, ctx).error, 'дробное');
   assert.ok(ach.parseGameExtra({ crocAtOneLife: true }, ctx).error, 'Альфа-Бонус на последней жизни без самого бонуса');
 });
+
+/* ---------- Ранги: значки, прогресс, награды ---------- */
+// те же 24 аватара, что и в profile.js; тест ловит рассинхрон каталога наград и списка профиля
+const PROFILE_AVATARS = [
+  '🐛', '🐞', '🪲', '🪳', '🐝', '🐌', '🐊', '🦎', '🕷️', '🦂', '🦋', '🐜',
+  '🦗', '🤖', '👾', '💻', '🧑‍💻', '🦖', '🐙', '🦊', '🐱', '🐼', '🚀', '⭐',
+];
+
+test('награды: у каждого ранга есть значок, цвет и набор наград', () => {
+  assert.equal(ach.RANK_UNLOCKS.length, ach.RANK_TITLES.length);
+  for (const r of ach.RANK_TITLES) {
+    assert.ok(r.icon && /^#[0-9a-f]{6}$/i.test(r.color), `значок и цвет у ${r.name}`);
+  }
+});
+
+test('награды: каждый аватар профиля открывается ровно на одном ранге', () => {
+  const all = ach.RANK_UNLOCKS.flatMap((u) => u.avatars);
+  assert.equal(new Set(all).size, all.length, 'аватар не должен повторяться');
+  assert.deepEqual([...all].sort(), [...PROFILE_AVATARS].sort());
+});
+
+test('награды: новичку открыт базовый набор, свой цвет — только с Сеньора', () => {
+  assert.ok(ach.isAvatarAllowed('🐛', 0));
+  assert.ok(!ach.isAvatarAllowed('🚀', 0));
+  assert.ok(ach.isAvatarAllowed('🚀', 15000));
+  assert.ok(ach.isColorAllowed('#35c4ff', 0));
+  assert.ok(!ach.isColorAllowed('#c792ea', 99), 'цвет Джуниора закрыт до 100 убитых');
+  assert.ok(ach.isColorAllowed('#C792EA', 100), 'регистр не важен');
+  assert.ok(!ach.isColorAllowed('#123456', 1999), 'произвольный цвет закрыт');
+  assert.ok(ach.isColorAllowed('#123456', 2000), 'произвольный цвет с Сеньора');
+});
+
+test('награды: открытое сохраняется при повышении ранга (набор только растёт)', () => {
+  let prev = 0;
+  for (const r of ach.RANK_TITLES) {
+    const n = ach.unlockedFor(r.minKills).avatars.length;
+    assert.ok(n > prev, `на ранге ${r.name} открываются новые аватары`);
+    prev = n;
+  }
+  assert.equal(prev, PROFILE_AVATARS.length);
+});
+
+test('rankProgress: прогресс считается внутри текущего ранга', () => {
+  assert.equal(ach.rankProgress(0).ratio, 0);
+  assert.equal(ach.rankProgress(50).ratio, 0.5);
+  const mid = ach.rankProgress(600);
+  assert.equal(mid.floor, 500);
+  assert.equal(mid.remaining, 1400);
+  assert.ok(Math.abs(mid.ratio - 100 / 1500) < 1e-9, 'не 600/2000');
+  assert.equal(mid.next.name, 'Сеньор');
+  const top = ach.rankProgress(20000);
+  assert.deepEqual([top.ratio, top.remaining, top.next], [1, 0, null]);
+});
+
+test('tierInfo и rankLadder: уровень, текущий ранг и достигнутые', () => {
+  assert.equal(ach.tierInfo(0).level, 0);
+  assert.equal(ach.tierInfo(500).name, 'Мидл');
+  const ladder = ach.rankLadder(600);
+  assert.deepEqual(ladder.map((r) => r.reached), [true, true, true, false, false, false]);
+  assert.equal(ladder.filter((r) => r.current).length, 1);
+  assert.equal(ladder.find((r) => r.current).name, 'Мидл');
+});

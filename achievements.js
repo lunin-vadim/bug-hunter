@@ -27,12 +27,26 @@ const ACHIEVEMENTS = [
 
 /** Ранговые титулы по числу убитых багов за всё время */
 const RANK_TITLES = [
-  { code: 'rank_intern', name: 'Стажёр', minKills: 0 },
-  { code: 'rank_junior', name: 'Джуниор', minKills: 100 },
-  { code: 'rank_middle', name: 'Мидл', minKills: 500 },
-  { code: 'rank_senior', name: 'Сеньор', minKills: 2000 },
-  { code: 'rank_lead', name: 'Тимлид', minKills: 5000 },
-  { code: 'rank_architect', name: 'Архитектор', minKills: 15000 },
+  { code: 'rank_intern', name: 'Стажёр', minKills: 0, icon: '🌱', color: '#8b95a7' },
+  { code: 'rank_junior', name: 'Джуниор', minKills: 100, icon: '🔧', color: '#d0925b' },
+  { code: 'rank_middle', name: 'Мидл', minKills: 500, icon: '⚙️', color: '#c9d1de' },
+  { code: 'rank_senior', name: 'Сеньор', minKills: 2000, icon: '🛡️', color: '#ffd166' },
+  { code: 'rank_lead', name: 'Тимлид', minKills: 5000, icon: '🧭', color: '#7fd8ff' },
+  { code: 'rank_architect', name: 'Архитектор', minKills: 15000, icon: '🏛️', color: '#c792ea' },
+];
+
+/**
+ * Что открывает каждый ранг (индекс совпадает с RANK_TITLES). Аватары и цвета, не попавшие в ранг ≥ 0,
+ * недоступны. Тест следит, чтобы каждый аватар из профиля был ровно в одном ранге.
+ * `customColor` — произвольный цвет через палитру; `perk` — подпись для витрины наград.
+ */
+const RANK_UNLOCKS = [
+  { avatars: ['🐛', '🐞', '🪲', '🪳', '🐝', '🐌'], colors: ['#35c4ff', '#7cf29a', '#ffd166', '#ff5470'], customColor: false, perk: 'Базовый набор аватаров и цветов' },
+  { avatars: ['🐊', '🦎', '🕷️', '🦂'], colors: ['#c792ea', '#ff9f43'], customColor: false, perk: 'Новые аватары и два цвета профиля' },
+  { avatars: ['🦋', '🐜', '🦗', '🤖'], colors: ['#4dd0e1', '#f78fb3'], customColor: false, perk: 'Ещё аватары и цвета, серебряный значок' },
+  { avatars: ['👾', '💻', '🧑‍💻', '🦖'], colors: [], customColor: true, perk: 'Свой цвет профиля и сияние вокруг аватара' },
+  { avatars: ['🐙', '🦊', '🐱', '🐼'], colors: [], customColor: false, perk: 'Редкие аватары и усиленное сияние' },
+  { avatars: ['🚀', '⭐'], colors: [], customColor: false, perk: 'Эксклюзивные аватары и фиолетовое сияние' },
 ];
 
 /** Титулы за отдельные ачивки */
@@ -152,6 +166,55 @@ function rankTitle(totalKills) {
   return best;
 }
 
+const rankIndex = (totalKills) => RANK_TITLES.reduce((best, r, i) => (totalKills >= r.minKills ? i : best), 0);
+
+/** Короткое описание ранга для значков: уровень, название, иконка и цвет */
+function tierInfo(totalKills) {
+  const level = rankIndex(totalKills);
+  const r = RANK_TITLES[level];
+  return { level, code: r.code, name: r.name, icon: r.icon, color: r.color };
+}
+
+/** Что открыто на ранге игрока: все аватары и цвета рангов до текущего включительно */
+function unlockedFor(totalKills) {
+  const upTo = RANK_UNLOCKS.slice(0, rankIndex(totalKills) + 1);
+  return {
+    avatars: upTo.flatMap((u) => u.avatars),
+    colors: upTo.flatMap((u) => u.colors),
+    customColor: upTo.some((u) => u.customColor),
+  };
+}
+
+const isAvatarAllowed = (avatar, totalKills) => unlockedFor(totalKills).avatars.includes(avatar);
+const isColorAllowed = (color, totalKills) => {
+  const u = unlockedFor(totalKills);
+  return u.customColor || u.colors.includes(String(color).toLowerCase());
+};
+
+/** Лестница рангов для кабинета: порог, награды и состояние (достигнут / текущий) */
+function rankLadder(totalKills) {
+  const current = rankIndex(totalKills);
+  return RANK_TITLES.map((r, i) => ({
+    code: r.code, name: r.name, icon: r.icon, color: r.color, minKills: r.minKills,
+    reached: i <= current, current: i === current,
+    unlocks: RANK_UNLOCKS[i],
+  }));
+}
+
+/** Прогресс внутри текущего ранга: доля пути от его порога до порога следующего (1 — ранг максимальный) */
+function rankProgress(totalKills) {
+  const i = rankIndex(totalKills);
+  const next = RANK_TITLES[i + 1];
+  if (!next) { return { ratio: 1, floor: RANK_TITLES[i].minKills, remaining: 0, next: null }; }
+  const floor = RANK_TITLES[i].minKills;
+  return {
+    ratio: Math.min(1, (totalKills - floor) / (next.minKills - floor)),
+    floor,
+    remaining: next.minKills - totalKills,
+    next: { name: next.name, minKills: next.minKills, icon: next.icon, color: next.color },
+  };
+}
+
 /** Все титулы, доступные игроку: ранговые до его уровня + за полученные ачивки */
 function availableTitles(totalKills, unlocked) {
   const ranks = RANK_TITLES.filter((r) => totalKills >= r.minKills).map((r) => ({ code: r.code, name: r.name, kind: 'rank' }));
@@ -172,4 +235,5 @@ module.exports = {
   ACHIEVEMENTS, ACHIEVEMENT_CODES, RANK_TITLES, ACHIEVEMENT_TITLES,
   parseGameExtra, applyGame, statsJson, statsFromRow, evaluate, achievementList,
   rankTitle, availableTitles, activeTitle,
+  RANK_UNLOCKS, rankIndex, tierInfo, unlockedFor, isAvatarAllowed, isColorAllowed, rankLadder, rankProgress,
 };

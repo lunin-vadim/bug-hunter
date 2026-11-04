@@ -67,13 +67,18 @@
     av.className = 'avatar';
     av.textContent = r.avatar || '🐛';
     av.style.setProperty('--accent', r.color || '#35c4ff');
+    if (r.tier) { applyTier(av, r.tier); }
     const info = document.createElement('div');
     info.className = 'who-info';
+    const nameRow = document.createElement('div');
+    nameRow.className = 'who-name';
     const name = document.createElement('b');
     name.textContent = r.username;
+    nameRow.append(name);
+    if (r.tier) { nameRow.append(rankBadge(r.tier, 'sm')); }
     const sub = document.createElement('small');
     sub.textContent = r.status ? `${r.title} · ${r.status}` : r.title;
-    info.append(name, sub);
+    info.append(nameRow, sub);
     wrap.append(av, info);
     td.append(wrap);
   }

@@ -47,8 +47,12 @@ module.exports = function createProfileRouter({ pool, asyncH, authLimiter, setSe
       [u.id],
     )).rows.map((g) => ({ kills: g.kills, score: g.score, durationMs: g.duration_ms, bestCombo: g.best_combo, wave: g.wave, createdAt: g.created_at }));
 
-    const rank = ach.rankTitle(u.total_kills);
-    const next = ach.RANK_TITLES.find((r) => r.minKills > u.total_kills) || null;
+    const tier = ach.tierInfo(u.total_kills);
+    const progress = ach.rankProgress(u.total_kills);
+    const unlocked = ach.unlockedFor(u.total_kills);
+    const colorRank = new Map(ach.RANK_UNLOCKS.flatMap((r, i) => r.colors.map((c) => [c, i])));
+    const avatarRank = new Map(ach.RANK_UNLOCKS.flatMap((r, i) => r.avatars.map((a) => [a, i])));
+    const customRank = ach.RANK_UNLOCKS.findIndex((r) => r.customColor);
     const changedAt = u.username_changed_at ? new Date(u.username_changed_at).getTime() : 0;
     const nextChange = changedAt + USERNAME_COOLDOWN_MS;
 
@@ -60,13 +64,21 @@ module.exports = function createProfileRouter({ pool, asyncH, authLimiter, setSe
         bestCombo: u.best_combo, bestWave: u.best_wave, golden: stats.golden, bombs: stats.bombs, freezes: stats.freezes,
         crocs: stats.crocs, longestGameMs: stats.longestGameMs,
       },
-      rank: { name: rank.name, next: next ? { name: next.name, minKills: next.minKills } : null },
+      rank: { ...tier, floor: progress.floor, ratio: progress.ratio, remaining: progress.remaining, next: progress.next },
+      ladder: ach.rankLadder(u.total_kills),
       achievements: ach.achievementList(stats, unlockedAt),
       titles: ach.availableTitles(u.total_kills, doneCodes),
       activeTitleCode: ach.activeTitle(u.title, u.total_kills, doneCodes).code,
       titleChosen: !!u.title,
       history: games,
-      options: { avatars: AVATARS, statusMax: STATUS_MAX, bioMax: BIO_MAX },
+      options: {
+        // награды за ранги: что открыто и с какого ранга откроется остальное
+        avatars: AVATARS.map((a) => ({ value: a, locked: !unlocked.avatars.includes(a), rank: ach.RANK_TITLES[avatarRank.get(a)].name })),
+        colors: [...colorRank].map(([c, i]) => ({ value: c, locked: !unlocked.colors.includes(c), rank: ach.RANK_TITLES[i].name })),
+        customColor: { locked: !unlocked.customColor, rank: ach.RANK_TITLES[customRank].name },
+        statusMax: STATUS_MAX,
+        bioMax: BIO_MAX,
+      },
       usernameChangeAvailableAt: nextChange > Date.now() ? new Date(nextChange).toISOString() : null,
     });
   }));
@@ -80,10 +92,16 @@ module.exports = function createProfileRouter({ pool, asyncH, authLimiter, setSe
 
     if ('avatar' in body) {
       if (!AVATARS.includes(body.avatar)) { return res.status(400).json({ error: 'Недопустимый аватар' }); }
+      if (body.avatar !== u.avatar && !ach.isAvatarAllowed(body.avatar, u.total_kills)) {
+        return res.status(403).json({ error: 'Этот аватар откроется с более высоким рангом' });
+      }
       put('avatar', body.avatar);
     }
     if ('color' in body) {
       if (typeof body.color !== 'string' || !COLOR_RE.test(body.color)) { return res.status(400).json({ error: 'Цвет: формат #rrggbb' }); }
+      if (body.color.toLowerCase() !== String(u.color).toLowerCase() && !ach.isColorAllowed(body.color, u.total_kills)) {
+        return res.status(403).json({ error: 'Этот цвет откроется с более высоким рангом' });
+      }
       put('color', body.color.toLowerCase());
     }
     if ('status' in body) {

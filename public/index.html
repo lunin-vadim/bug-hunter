@@ -100,7 +100,7 @@
         <div class="me-top">
           <span id="me-avatar" class="avatar" aria-hidden="true"></span>
           <div class="me-info">
-            <span class="me-name"><b id="me-name"></b> <span id="me-title" class="chip"></span></span>
+            <span class="me-name"><span id="me-badge"></span><b id="me-name"></b> <span id="me-title" class="chip"></span></span>
             <button id="btn-logout" class="link">Выйти</button>
           </div>
           <button id="btn-cabinet" class="secondary">Кабинет</button>
@@ -152,8 +152,17 @@
         <button id="btn-cabinet-close" class="icon-btn" aria-label="Закрыть кабинет">×</button>
       </header>
       <div class="drawer-body cabinet">
-      <div class="rank-bar" aria-hidden="true"><div id="cab-rank-fill" class="rank-fill"></div></div>
-      <p id="cab-rank-text" class="hint"></p>
+      <section id="cab-rank" class="rank-card" aria-label="Ранг">
+        <div class="rank-head">
+          <span id="cab-rank-badge"></span>
+          <div class="rank-title"><small>Ваш ранг</small><b id="cab-rank-name"></b></div>
+          <div class="rank-kills"><b id="cab-rank-kills">0</b><small>багов</small></div>
+        </div>
+        <div class="rank-bar" aria-hidden="true"><div id="cab-rank-fill" class="rank-fill"></div></div>
+        <p id="cab-rank-text" class="hint"></p>
+        <ol id="cab-rank-steps" class="rank-steps"></ol>
+        <div id="cab-rank-detail" class="rank-detail" aria-live="polite"></div>
+      </section>
       <div id="cab-stats" class="stat-grid"></div>
 
       <div class="tabs" role="tablist" aria-label="Разделы кабинета">
@@ -171,6 +180,7 @@
           <div id="cab-swatches" class="swatches"></div>
           <input id="cab-color" type="color" aria-label="Свой цвет">
         </div>
+        <p id="cab-color-hint" class="hint"></p>
         <h3>Титул</h3>
         <div id="cab-titles" class="title-list"></div>
         <h3>Статус</h3>
@@ -229,6 +239,21 @@
       </section>
       </div>
   </aside>
+
+  <div id="rankup" class="rankup" role="dialog" aria-modal="true" aria-labelledby="rankup-name" hidden>
+    <div class="rankup-card">
+      <div class="rankup-stage"><div class="rankup-rays" aria-hidden="true"></div><span id="rankup-badge"></span></div>
+      <p class="rankup-kicker">Новый ранг</p>
+      <h2 id="rankup-name"></h2>
+      <p class="rankup-open">Открыто</p>
+      <div id="rankup-unlocks" class="rankup-unlocks"></div>
+      <p id="rankup-perk" class="rankup-perk"></p>
+      <div class="rankup-actions">
+        <button id="rankup-ok" class="primary">Отлично!</button>
+        <button id="rankup-cabinet" class="secondary">В кабинет</button>
+      </div>
+    </div>
+  </div>
 
   <div id="toasts" aria-live="polite"></div>
 

@@ -93,6 +93,7 @@ const publicUser = (u) => ({
   color: u.color,
   status: u.status,
   title: titleOf(u).name,
+  tier: ach.tierInfo(u.total_kills),
 });
 
 function validateCredentials(body) {
@@ -192,12 +193,13 @@ app.post('/api/score', requireAuth, asyncH(async (req, res) => {
     }
     await client.query('COMMIT');
 
-    const rankBefore = ach.rankTitle(prev.totalKills);
-    const rankAfter = ach.rankTitle(next.totalKills);
+    const levelBefore = ach.rankIndex(prev.totalKills);
+    const levelAfter = ach.rankIndex(next.totalKills);
     res.json({
       user: publicUser(rows[0]),
       newAchievements: ach.ACHIEVEMENTS.filter((a) => fresh.includes(a.code)).map(({ code, icon, name, desc }) => ({ code, icon, name, desc })),
-      newRank: rankAfter.code !== rankBefore.code ? rankAfter.name : null,
+      // повышение ранга: значок и награды, чтобы клиент показал праздничную карточку
+      newRank: levelAfter > levelBefore ? { ...ach.tierInfo(next.totalKills), unlocks: ach.RANK_UNLOCKS[levelAfter] } : null,
     });
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
@@ -251,7 +253,7 @@ app.get('/api/leaderboard', asyncH(async (req, res) => {
   res.json({
     sort: key,
     top: rows.map((r, i) => ({
-      rank: i + 1, username: r.username, avatar: r.avatar, color: r.color, status: r.status, title: titleOf(r).name,
+      rank: i + 1, username: r.username, avatar: r.avatar, color: r.color, status: r.status, title: titleOf(r).name, tier: ach.tierInfo(r.total_kills),
       totalKills: r.total_kills, bestScore: r.best_score, bestKillsGame: r.best_kills_game, gamesPlayed: r.games_played,
     })),
     me,
