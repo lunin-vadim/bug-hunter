@@ -803,7 +803,7 @@ async function submitResult(finalScore, finalKills, durationMs) {
     renderUser();
     el.saveStatus.textContent = `Сохранено · всего убито: ${currentUser.totalKills}`;
     if (data.newRank) { toast('🎖️', 'Новый ранг', data.newRank); }
-    for (const a of data.newAchievements || []) { toast(a.icon, `Ачивка: ${a.name}`, a.desc); }
+    toastAchievements(data.newAchievements || []);
   } catch (e) {
     el.saveStatus.textContent = `Результат не сохранён: ${e.message}`;
   }
@@ -825,8 +825,54 @@ function toast(icon, title, text) {
   d.textContent = text || '';
   body.append(t, d);
   node.append(ic, body);
+  node.addEventListener('click', () => node.remove());
   box.append(node);
   setTimeout(() => node.remove(), 5200);
+}
+
+const ACH_TOAST_ROWS = 4; // сколько ачивок показываем строками, остальные — «и ещё N»
+
+/** Одна карточка на все ачивки партии: заголовок, список с каскадом, время показа растёт с числом строк */
+function toastAchievements(list) {
+  const box = document.getElementById('toasts');
+  if (!box || !list.length) { return; }
+  const node = document.createElement('div');
+  node.className = list.length > 1 ? 'toast toast-ach toast-multi' : 'toast toast-ach';
+  const life = Math.min(9000, 4500 + 700 * list.length);
+  node.style.setProperty('--life', `${life}ms`);
+  const body = document.createElement('div');
+  body.className = 'toast-body';
+  const kicker = document.createElement('span');
+  kicker.className = 'toast-kicker';
+  kicker.textContent = list.length > 1 ? `Новые ачивки · ${list.length}` : 'Новая ачивка';
+  const ul = document.createElement('ul');
+  ul.className = 'toast-list';
+  const row = (icon, title, text, i) => {
+    const li = document.createElement('li');
+    li.style.setProperty('--i', i);
+    const ic = document.createElement('span');
+    ic.className = 'toast-icon';
+    ic.textContent = icon;
+    const info = document.createElement('span');
+    info.className = 'toast-info';
+    const t = document.createElement('b');
+    t.textContent = title;
+    info.append(t);
+    if (text) {
+      const d = document.createElement('small');
+      d.textContent = text;
+      info.append(d);
+    }
+    li.append(ic, info);
+    ul.append(li);
+  };
+  list.slice(0, ACH_TOAST_ROWS).forEach((a, i) => row(a.icon, a.name, a.desc, i));
+  if (list.length > ACH_TOAST_ROWS) { row('＋', `и ещё ${list.length - ACH_TOAST_ROWS}`, 'Все — в кабинете, во вкладке «Ачивки»', ACH_TOAST_ROWS); }
+  body.append(kicker, ul);
+  node.append(body);
+  node.addEventListener('click', () => node.remove());
+  box.append(node);
+  setTimeout(() => node.remove(), life);
 }
 
 el.authForm.addEventListener('submit', (e) => { e.preventDefault(); authSubmit('login'); });

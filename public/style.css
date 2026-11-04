@@ -272,19 +272,46 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
 
 /* ---------- Уведомления ---------- */
 #toasts {
-  position: fixed; left: 50%; bottom: 24px; z-index: 5; display: flex; flex-direction: column; gap: 8px;
-  width: min(380px, calc(100vw - 32px)); transform: translateX(-50%); pointer-events: none;
+  position: fixed; left: 50%; bottom: 16px; z-index: 5; display: flex; flex-direction: column; gap: 8px;
+  width: min(400px, calc(100vw - 24px)); transform: translateX(-50%); pointer-events: none;
+}
+/* на широком экране — справа под панелью значков: не закрывает ни карточку итогов, ни кнопки */
+@media (min-width: 901px) {
+  #toasts { top: 72px; bottom: auto; left: auto; right: 16px; width: 380px; transform: none; }
 }
 .toast {
-  display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #1b2540;
-  border: 1px solid rgba(255, 209, 102, .5); border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
-  animation: toast-in .3s ease, toast-out .4s ease 4.8s forwards;
+  --life: 4800ms;
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; pointer-events: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 32px rgba(0, 0, 0, .5);
+  animation: toast-in .3s ease, toast-out .4s ease calc(var(--life) - 400ms) forwards;
 }
-.toast-icon { font-size: 26px; }
-.toast div { display: flex; flex-direction: column; min-width: 0; }
-.toast small { opacity: .75; }
-@keyframes toast-in { from { opacity: 0; transform: translateY(12px); } }
-@keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
+.toast > div { display: flex; flex-direction: column; min-width: 0; }
+.toast small { color: var(--muted); }
+.toast-icon {
+  display: grid; place-items: center; flex: none; width: 36px; height: 36px; font-size: 20px;
+  background: rgba(255, 255, 255, .06); border-radius: 10px;
+}
+.toast.toast-ach { align-items: flex-start; border-color: rgba(255, 209, 102, .35); box-shadow: 0 12px 32px rgba(0, 0, 0, .5), inset 3px 0 0 #ffd166; }
+.toast.toast-ach .toast-icon { background: rgba(255, 209, 102, .12); }
+.toast-body { flex: 1; gap: 8px; }
+.toast-kicker { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #ffd166; }
+.toast-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.toast-list li { display: flex; align-items: center; gap: 10px; animation: toast-row .35s ease backwards; animation-delay: calc(var(--i) * 120ms + 150ms); }
+.toast-info { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.toast-info b { font-size: 14px; }
+.toast-info small { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* узкий экран: несколько ачивок — компактные чипы без описаний, чтобы не закрывать кнопки */
+@media (max-width: 900px) {
+  .toast { pointer-events: none; } /* лежит поверх кнопок — тапы проходят сквозь, исчезает сама */
+  .toast-multi .toast-list { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .toast-multi li { gap: 6px; padding: 3px 10px 3px 3px; background: rgba(255, 255, 255, .06); border-radius: 999px; }
+  .toast-multi .toast-icon { width: 26px; height: 26px; font-size: 14px; border-radius: 50%; }
+  .toast-multi .toast-info b { font-size: 13px; white-space: nowrap; }
+  .toast-multi .toast-info small { display: none; }
+}
+@keyframes toast-in { from { opacity: 0; transform: translateY(-12px) scale(.98); } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(-8px); } }
+@keyframes toast-row { from { opacity: 0; transform: translateX(-10px); } }
 
 @media (hover: none) { .hint.keys { display: none; } }
 @media (max-width: 560px) {
@@ -313,5 +340,5 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
 }
 @media (prefers-reduced-motion: reduce) {
   .drawer, .drawer-handle, .rank-fill, #tools { transition: none; }
-  .toast { animation: none; }
+  .toast, .toast-list li { animation: none; }
 }
