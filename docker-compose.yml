@@ -1,0 +1,14 @@
+# Альтернатива scripts/db-start.sh: PostgreSQL в Docker на порту 5433
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bughunter
+      POSTGRES_PASSWORD: bughunter
+      POSTGRES_DB: bughunter
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

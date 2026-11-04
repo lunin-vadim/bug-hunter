@@ -1,0 +1,7 @@
+node_modules/
+.env
+.pgdata/
+.pg.log
+.server.log
+*.log
+.DS_Store

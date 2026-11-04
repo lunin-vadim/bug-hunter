@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Bug Hunter</title>
+  <meta name="description" content="Bug Hunter — браузерная аркада: устраняйте баги до релиза и соревнуйтесь в рейтинге.">
+  <meta name="theme-color" content="#0b0f1a">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" hidden>
+    <div class="hud-item"><span class="hud-label">Очки</span><span id="hud-score">0</span></div>
+    <div class="hud-item"><span class="hud-label">Комбо</span><span id="hud-combo">0</span></div>
+    <div class="hud-item"><span class="hud-label">Жизни</span><span id="hud-lives">❤❤❤</span></div>
+    <div class="hud-item"><span class="hud-label">Рекорд</span><span id="hud-best">0</span></div>
+  </div>
+
+  <div id="tools">
+    <button id="btn-pause" title="Пауза (P)" aria-label="Пауза" disabled>
+      <svg class="ic-pause" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+        <rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>
+      </svg>
+      <svg class="ic-play" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+        <path d="M8 5.5v13a1 1 0 0 0 1.5.9l10-6.5a1 1 0 0 0 0-1.8l-10-6.5A1 1 0 0 0 8 5.5z"/>
+      </svg>
+    </button>
+    <button id="btn-sound" title="Звук (M)" aria-label="Звук" aria-pressed="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M11 5 6 9H3v6h3l5 4z"/>
+        <path class="wave" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>
+        <path class="mute" d="m16 9 6 6m0-6-6 6"/>
+      </svg>
+    </button>
+    <button id="btn-profile" title="Личный кабинет (C)" aria-label="Личный кабинет">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>
+      </svg>
+    </button>
+    <button id="btn-fx" title="Тряска и вспышки (V)" aria-label="Эффекты" aria-pressed="true">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M13 2 4 14h7l-1 8 9-12h-7z"/>
+      </svg>
+    </button>
+    <button id="btn-full" title="Полный экран (F)" aria-label="Полный экран">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>
+      </svg>
+    </button>
+  </div>
+
+  <div id="overlay" class="overlay">
+    <div class="card">
+      <h1 id="ov-title">Bug Hunter</h1>
+      <p id="ov-text">Баги ползут к продакшену. Устраняйте их кликом, пока они не пересекли красную линию.</p>
+      <ul id="ov-help" class="help">
+        <li>🐛 🐞 🪲 — обычные баги, у 🪲 два хп</li>
+        <li>🪳 — при смерти делится на мелких</li>
+        <li>🐝 — золотой: бонус и пауза появления</li>
+        <li>🐌 — приманка: клик по ней снимает очки</li>
+        <li><img class="help-icon" src="assets/alfa-bonus.png" alt="Альфа-Бонус"> — Альфа-Бонус: устраняет всех багов на экране и возвращает жизнь</li>
+        <li>🧊 — Code freeze: баги замедляются на 4 секунды</li>
+        <li>💣 — Hotfix: взрыв устраняет всех багов вокруг</li>
+      </ul>
+      <p id="ov-stats" class="stats"></p>
+      <div id="auth" class="auth">
+        <form id="auth-form" autocomplete="on">
+          <input id="auth-user" name="username" placeholder="Имя" maxlength="20" autocomplete="username">
+          <input id="auth-pass" name="password" type="password" placeholder="Пароль" maxlength="72" autocomplete="current-password">
+          <div class="auth-row">
+            <button type="submit" id="btn-login" class="secondary">Войти</button>
+            <button type="button" id="btn-register" class="secondary">Регистрация</button>
+          </div>
+        </form>
+        <p id="auth-error" class="error" hidden></p>
+        <p class="hint">Без входа можно играть, но очки не попадут в рейтинг.</p>
+      </div>
+      <div id="me" class="me" hidden>
+        <span id="me-avatar" class="avatar" aria-hidden="true"></span>
+        <div class="me-info">
+          <span><b id="me-name"></b> <span id="me-title" class="chip"></span></span>
+          <small>партий: <b id="me-games">0</b> · рекорд: <b id="me-best">0</b> · убито: <b id="me-kills">0</b></small>
+        </div>
+        <button id="btn-cabinet" class="secondary">Кабинет</button>
+        <button id="btn-logout" class="link">Выйти</button>
+      </div>
+      <p id="save-status" class="stats small" hidden></p>
+      <button id="btn-start" class="primary">Играть</button>
+      <button id="btn-board" class="secondary wide">Рейтинг</button>
+      <p class="hint">Space или Enter — старт · P — пауза · R — заново · C — кабинет · L — рейтинг · F — экран · M — звук · V — эффекты</p>
+    </div>
+  </div>
+
+  <button id="board-handle" class="drawer-handle" aria-controls="board" aria-expanded="false" title="Рейтинг (L)">Рейтинг</button>
+  <aside id="board" class="drawer" aria-label="Рейтинг" inert>
+    <header class="drawer-head">
+      <h2>Рейтинг</h2>
+      <button id="btn-board-close" class="icon-btn" aria-label="Закрыть рейтинг">×</button>
+    </header>
+    <div class="tabs" role="tablist" aria-label="Сортировка рейтинга">
+      <button id="tab-kills" class="tab active" role="tab" aria-selected="true" data-sort="kills" title="Сколько багов устранено за всё время">За всё время</button>
+      <button id="tab-single" class="tab" role="tab" aria-selected="false" data-sort="single" title="Максимум багов за одну партию">За раз</button>
+      <button id="tab-score" class="tab" role="tab" aria-selected="false" data-sort="score" title="Лучший счёт за партию">Очки</button>
+    </div>
+    <div class="drawer-body">
+      <table class="board">
+        <thead><tr><th>#</th><th>Игрок</th><th class="num" data-col="single" title="Максимум багов за одну партию">За раз</th><th class="num" data-col="kills" title="Багов за всё время">Всего</th><th class="num" data-col="score" title="Лучший счёт">Очки</th></tr></thead>
+        <tbody id="board-body"></tbody>
+      </table>
+      <p id="board-me" class="stats small" hidden></p>
+    </div>
+  </aside>
+
+  <aside id="cabinet" class="drawer drawer-left" aria-labelledby="cab-title" inert>
+      <header class="drawer-head cab-head">
+        <span id="cab-avatar" class="avatar big" aria-hidden="true"></span>
+        <div class="cab-id">
+          <h1 id="cab-title">Личный кабинет</h1>
+          <p><b id="cab-name"></b> <span id="cab-chip" class="chip"></span></p>
+          <p id="cab-status" class="hint"></p>
+        </div>
+        <button id="btn-cabinet-close" class="icon-btn" aria-label="Закрыть кабинет">×</button>
+      </header>
+      <div class="drawer-body cabinet">
+      <div class="rank-bar" aria-hidden="true"><div id="cab-rank-fill" class="rank-fill"></div></div>
+      <p id="cab-rank-text" class="hint"></p>
+      <div id="cab-stats" class="stat-grid"></div>
+
+      <div class="tabs" role="tablist" aria-label="Разделы кабинета">
+        <button class="tab active" role="tab" aria-selected="true" data-cab="profile">Профиль</button>
+        <button class="tab" role="tab" aria-selected="false" data-cab="achievements">Ачивки</button>
+        <button class="tab" role="tab" aria-selected="false" data-cab="history">История</button>
+        <button class="tab" role="tab" aria-selected="false" data-cab="security">Безопасность</button>
+      </div>
+
+      <section id="cab-profile" class="cab-pane">
+        <h3>Аватар</h3>
+        <div id="cab-avatars" class="avatar-grid"></div>
+        <h3>Цвет профиля</h3>
+        <div class="color-row">
+          <div id="cab-swatches" class="swatches"></div>
+          <input id="cab-color" type="color" aria-label="Свой цвет">
+        </div>
+        <h3>Титул</h3>
+        <div id="cab-titles" class="title-list"></div>
+        <h3>Статус</h3>
+        <input id="cab-status-input" class="field" maxlength="60" placeholder="Коротко о настроении">
+        <h3>О себе</h3>
+        <textarea id="cab-bio" class="field" rows="3" maxlength="200" placeholder="Расскажите о себе"></textarea>
+        <p class="hint right"><span id="cab-bio-count">0</span>/200</p>
+        <button id="cab-save" class="primary small">Сохранить профиль</button>
+        <p id="cab-profile-msg" class="form-msg" hidden></p>
+      </section>
+
+      <section id="cab-achievements" class="cab-pane" hidden>
+        <p id="cab-ach-summary" class="hint"></p>
+        <div id="cab-ach-grid" class="ach-grid"></div>
+      </section>
+
+      <section id="cab-history" class="cab-pane" hidden>
+        <table class="board">
+          <thead><tr><th>Дата</th><th class="num">Очки</th><th class="num">Багов</th><th class="num">Комбо</th><th class="num">Волна</th><th class="num">Время</th></tr></thead>
+          <tbody id="cab-history-body"></tbody>
+        </table>
+      </section>
+
+      <section id="cab-security" class="cab-pane" hidden>
+        <form id="form-username" class="sec-form" autocomplete="off">
+          <h3>Сменить имя</h3>
+          <input id="sec-newname" class="field" name="newname" placeholder="Новое имя" maxlength="20" autocomplete="off">
+          <input id="sec-name-pass" class="field" name="password" type="password" placeholder="Текущий пароль" maxlength="72" autocomplete="current-password">
+          <button class="secondary" type="submit">Сменить имя</button>
+          <p id="sec-name-hint" class="hint">Имя можно менять раз в 7 дней.</p>
+          <p id="sec-name-msg" class="form-msg" hidden></p>
+        </form>
+        <form id="form-password" class="sec-form">
+          <h3>Сменить пароль</h3>
+          <input id="sec-oldpass" class="field" type="password" placeholder="Текущий пароль" maxlength="72" autocomplete="current-password">
+          <input id="sec-newpass" class="field" type="password" placeholder="Новый пароль (от 6 символов)" maxlength="72" autocomplete="new-password">
+          <button class="secondary" type="submit">Сменить пароль</button>
+          <p class="hint">На остальных устройствах вас разлогинит.</p>
+          <p id="sec-pass-msg" class="form-msg" hidden></p>
+        </form>
+        <form id="form-reset" class="sec-form danger">
+          <h3>Сбросить статистику</h3>
+          <p class="hint">Обнулит убитых, рекорды, ачивки, титул и историю партий. Аккаунт останется.</p>
+          <input id="sec-reset-pass" class="field" type="password" placeholder="Пароль для подтверждения" maxlength="72" autocomplete="current-password">
+          <button class="secondary danger-btn" type="submit">Сбросить статистику</button>
+          <p id="sec-reset-msg" class="form-msg" hidden></p>
+        </form>
+        <form id="form-delete" class="sec-form danger">
+          <h3>Удалить аккаунт</h3>
+          <p class="hint">Безвозвратно. Введите пароль и слово УДАЛИТЬ.</p>
+          <input id="sec-del-pass" class="field" type="password" placeholder="Пароль" maxlength="72" autocomplete="current-password">
+          <input id="sec-del-word" class="field" placeholder="УДАЛИТЬ" maxlength="10" autocomplete="off">
+          <button class="secondary danger-btn" type="submit">Удалить аккаунт</button>
+          <p id="sec-del-msg" class="form-msg" hidden></p>
+        </form>
+      </section>
+      </div>
+  </aside>
+
+  <div id="toasts" aria-live="polite"></div>
+
+  <script src="game.js"></script>
+  <script src="board.js"></script>
+  <script src="cabinet.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "watch": ["server.js", "schema.sql", ".env"],
+  "ext": "js,json,sql",
+  "ignore": ["public", ".pgdata", "node_modules"],
+  "delay": 300
+}
