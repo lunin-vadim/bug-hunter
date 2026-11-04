@@ -313,12 +313,12 @@ function comboBonus(c) {
 function killBug(b, massKill = false) {
   bugs = bugs.filter((x) => x.id !== b.id);
   addSplat(b.x, b.y);
-  burst(b.x, b.y, b.behavior === 'golden' ? '#ffd166' : '#8bd450', 8);
+  burst(b.x, b.y, b.behavior === 'golden' ? '#ffd166' : BRAND, 8);
   kills += 1;
   const bonus = massKill ? 0 : comboBonus(combo);
   const gain = b.points + bonus;
   score += gain;
-  if (gain > 0) { addPopup(b.x, b.y - b.size * 0.5, `+${gain}`, bonus > 0 ? '#ffd166' : '#8bd450'); }
+  if (gain > 0) { addPopup(b.x, b.y - b.size * 0.5, `+${gain}`, bonus > 0 ? '#ffd166' : BRAND); }
 
   if (b.canSplit && !massKill) {
     for (const dx of [-1, 1]) {
@@ -486,14 +486,18 @@ function update(dt) {
 }
 
 /* ---------- Отрисовка ---------- */
+const FONT_UI = "'Onest', system-ui, sans-serif";
+const FONT_DISPLAY = "'Unbounded', 'Onest', system-ui, sans-serif";
+const BRAND = '#b8f04a'; // тот же акцент, что --brand в style.css
+
 function drawBackground() {
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#0b0f1a');
-  g.addColorStop(1, '#1a1030');
+  g.addColorStop(0, '#0b0d12');
+  g.addColorStop(1, '#14101a');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 
-  ctx.strokeStyle = 'rgba(120, 150, 255, 0.06)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
   ctx.lineWidth = 1;
   const step = 48 * S;
   const off = (elapsed / 40) % step;
@@ -514,10 +518,12 @@ function drawProdLine() {
   ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle = 'rgba(255, 120, 140, 0.9)';
-  ctx.font = `700 ${Math.round(14 * S)}px system-ui, sans-serif`;
+  ctx.font = `700 ${Math.round(13 * S)}px ${FONT_UI}`;
+  ctx.letterSpacing = `${Math.round(3 * S)}px`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('PRODUCTION', W / 2, y + (H - y) / 2);
+  ctx.letterSpacing = '0px';
 }
 
 function drawBugs() {
@@ -557,7 +563,7 @@ function drawEffects() {
   for (const s of splats) {
     const t = (now - s.born) / SPLAT_MS;
     ctx.globalAlpha = 1 - t;
-    ctx.fillStyle = '#8bd450';
+    ctx.fillStyle = BRAND;
     ctx.beginPath();
     ctx.arc(s.x, s.y, (10 + 22 * t) * S, 0, Math.PI * 2);
     ctx.fill();
@@ -571,7 +577,7 @@ function drawEffects() {
   ctx.globalAlpha = 1;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `800 ${Math.round(20 * S)}px system-ui, sans-serif`;
+  ctx.font = `700 ${Math.round(20 * S)}px ${FONT_UI}`;
   for (const p of popups) {
     const t = (now - p.born) / POPUP_MS;
     ctx.globalAlpha = 1 - t;
@@ -587,7 +593,7 @@ function drawBanner() {
   const a = Math.min(1, t * 3, (1 - t) * 6 + 0.2);
   ctx.globalAlpha = Math.max(0, Math.min(1, a));
   ctx.fillStyle = banner.color;
-  ctx.font = `800 ${Math.round(32 * S)}px system-ui, sans-serif`;
+  ctx.font = `700 ${Math.round(28 * S)}px ${FONT_DISPLAY}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,.6)';
@@ -607,10 +613,10 @@ function drawCountdown() {
   if (phase !== 'playing' || countdownLeft <= 0) { return; }
   const n = Math.ceil(countdownLeft / 1000);
   if (n !== lastTickSec) { lastTickSec = n; sfx.tick(); }
-  ctx.fillStyle = 'rgba(5, 8, 16, .45)';
+  ctx.fillStyle = 'rgba(8, 10, 14, .5)';
   ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#e8ecf5';
-  ctx.font = `800 ${Math.round(120 * S)}px system-ui, sans-serif`;
+  ctx.font = `700 ${Math.round(110 * S)}px ${FONT_DISPLAY}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(String(n), W / 2, H / 2);
