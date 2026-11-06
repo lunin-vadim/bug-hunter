@@ -24,9 +24,11 @@ const SPAWN_MIN_MS = 420;
 const ALFA_COOLDOWN_MS = 30000;    // Альфа-Бонус не чаще, чем раз в это время
 const ALFA_CLEAR_ZONE = 0.5;       // Альфа-Бонус чистит нижнюю часть поля (доля высоты до прода), а не весь экран
 // «Автотест»: бонус-бот сам устраняет багов, пока не закончится время (комбо и «Азарт» не трогает)
-const AUTOTEST_MS = 8000;
-const AUTOTEST_MAX_MS = 14000;   // подбор нового продлевает, но не бесконечно
-const AUTOTEST_TICK_MS = 450;    // как часто бот делает «выстрел»
+const AUTOTEST_MS = 10000;
+const AUTOTEST_MAX_MS = 16000;   // подбор нового продлевает, но не бесконечно
+const AUTOTEST_TICK_MS = 400;    // как часто бот делает «выстрел»
+// бонус редкий и ценный: не чаще раза в 45 с (перк «Тест-покрытие» сокращает на 20% за уровень), не больше одного на поле
+const AUTOTEST_COOLDOWN_MS = 45000;
 // перки: каждые PERK_EVERY волн игра встаёт на паузу и даёт выбрать одно из трёх улучшений
 const PERK_FIRST_WAVE = 3;
 const PERK_EVERY = 2;
@@ -100,7 +102,7 @@ const BUG_KINDS = [
   { emoji: '', image: ALFA_IMAGE, points: 0, hp: 1, size: 50, minSpeed: 38, maxSpeed: 55, weight: 0.25, behavior: 'alfa', minWave: 4 },
   { emoji: '🧊', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'freeze', minWave: 2 },
   { emoji: '💣', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'bomb', minWave: 2 },
-  { emoji: '🤖', points: 0, hp: 1, size: 34, minSpeed: 40, maxSpeed: 60, weight: 0.55, behavior: 'autotest', minWave: 3 },
+  { emoji: '🤖', points: 0, hp: 1, size: 40, minSpeed: 38, maxSpeed: 52, weight: 0.4, behavior: 'autotest', minWave: 3 },
   // новые враги, открываются с волнами
   { emoji: '🦟', points: 3, hp: 1, size: 22, minSpeed: 85, maxSpeed: 120, weight: 2, behavior: 'normal', ampMul: 3, minWave: 4, glow: 'rgba(255, 255, 255, 0.55)' },
   { emoji: '🕷️', points: 5, hp: 1, size: 30, minSpeed: 30, maxSpeed: 45, weight: 1.6, behavior: 'dasher', minWave: 6, glow: 'rgba(255, 255, 255, 0.6)' },
@@ -155,7 +157,8 @@ const el = {
 let W = 0, H = 0, DPR = 1, S = 1; // S — масштаб размеров/скоростей относительно окна
 let boss = null, bossesDefeated = 0, nextBossScore = BOSS_FIRST_SCORE, shield = 0;
 let ev = null, nextEventAt = EVENT_FIRST_AT_MS, lastEvent = null;
-let autotestLeft = 0, autotestTimer = 0, autotestShots = [], autotestTick = 0, autotestSpan = AUTOTEST_MS;
+let autotestLeft = 0, autotestTimer = 0, autotestShots = [], autotestTick = 0, autotestSpan = AUTOTEST_MS, lastAutotestAt = -Infinity;
+let botFinishing = false; // true, пока выстрел бота наносит урон боссу: так считаем «добил автотестом»
 let perks = {}, perkPending = false, perkOpen = false, perkChoices = [];
 
 /* ---------- Задача дня: у всех на сутки один сид ---------- */
@@ -202,7 +205,10 @@ let run = newRunStats(); // расширенная статистика парт
 
 function newRunStats() {
   // ключи `croc` и `crocAtOneLife` — часть формата /api/score и сохранённой статистики, относятся к Альфа-Бонусу
-  return { livesLost: 0 /* в половинках сердца */, maxBombKills: 0, crocAtOneLife: false, bonuses: { golden: 0, bomb: 0, freeze: 0, croc: 0 } };
+  return {
+    livesLost: 0 /* в половинках сердца */, maxBombKills: 0, crocAtOneLife: false, bonuses: { golden: 0, bomb: 0, freeze: 0, croc: 0 },
+    bossKills: 0, bossClean: 0, bossByBot: 0, autotestPicks: 0, autotestKills: 0, // для ачивок про босса и автотест
+  };
 }
 let lastTs = 0;
 
@@ -272,6 +278,7 @@ const sfx = {
   rankUp: () => { [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, 0.22, 'triangle', 0.12, null, i * 0.1)); tone(131, 0.7, 'sawtooth', 0.08, 65, 0.1); },
   autotest: () => { [330, 440, 554, 660].forEach((f, i) => tone(f, 0.08, 'square', 0.07, null, i * 0.05)); },
   zap: () => tone(1100, 0.06, 'square', 0.05, 500),
+  rareSpawn: () => { [784, 988, 1175].forEach((f, i) => tone(f, 0.18, 'triangle', 0.05, null, i * 0.09)); },
   shieldUp: () => { tone(660, 0.1, 'triangle', 0.1); tone(990, 0.16, 'triangle', 0.1, null, 0.07); },
   shieldHit: () => tone(880, 0.12, 'triangle', 0.12, 440),
   patch: () => { tone(523, 0.1, 'sine', 0.1); tone(784, 0.16, 'sine', 0.1, null, 0.08); },
@@ -327,6 +334,7 @@ const HAPTICS = {
   patch: 20,
   autotest: 25,
   zap: 6,
+  rareSpawn: [15, 40, 25],
   rankUp: [30, 40, 30, 40, 90],
 };
 for (const [name, pattern] of Object.entries(HAPTICS)) {
@@ -511,10 +519,17 @@ function perkWeight(k) {
   return 1;
 }
 
+/** Автотест выпадает редко: пауза после прошлого, не пока бот работает и не при втором на поле */
+function autotestReady() {
+  const cooldown = AUTOTEST_COOLDOWN_MS * (1 - 0.2 * perkLv('tests'));
+  return autotestLeft <= 0 && elapsed - lastAutotestAt >= cooldown && !bugs.some((b) => b.behavior === 'autotest');
+}
+
 function pickKind() {
   const alfaReady = elapsed - lastAlfaAt >= ALFA_COOLDOWN_MS;
+  const autotestOk = autotestReady();
   const pool = BUG_KINDS
-    .filter((k) => wave >= (k.minWave || 1) && (k.behavior !== 'alfa' || alfaReady))
+    .filter((k) => wave >= (k.minWave || 1) && (k.behavior !== 'alfa' || alfaReady) && (k.behavior !== 'autotest' || autotestOk))
     .map((k) => ({ k, w: (k.weight / (1 + (k.fade || 0) * (wave - 1))) * perkWeight(k) }));
   const total = pool.reduce((s, p) => s + p.w, 0);
   let r = rng.spawn() * total;
@@ -529,6 +544,7 @@ function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
   const inWave = Math.max(0, Math.min(1, (elapsed - (nextWaveAt - WAVE_EVERY_MS)) / WAVE_EVERY_MS));
   const speedBoost = Math.min(SPEED_CAP, 1 + (wave - 1) * SPEED_STEP_PER_WAVE + inWave * SPEED_STEP_IN_WAVE) * 0.9 ** perkLv('slow') * (dayMod() === 'fast' ? 1.2 : 1);
   if (kind.behavior === 'alfa') { lastAlfaAt = elapsed; }
+  if (kind.behavior === 'autotest') { lastAutotestAt = elapsed; sfx.rareSpawn(); } // редкий гость: даём о себе знать
   bugs.push({
     id: nextId++,
     kind,
@@ -580,7 +596,7 @@ function resetGame() {
   slowLeft = 0; countdownLeft = 0;
   boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE; shield = 0;
   ev = null; nextEventAt = dayMod() === 'storm' ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null;
-  autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0; autotestSpan = AUTOTEST_MS;
+  autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0; autotestSpan = AUTOTEST_MS; lastAutotestAt = -Infinity;
   perks = {}; perkPending = false; closePerks(); renderPerkStrip();
   run = newRunStats();
   banner = null; shake = 0; flash = 0;
@@ -729,6 +745,7 @@ function eatEverything() {
 }
 
 function activateAutotest(b) {
+  run.autotestPicks += 1;
   const mul = 1 + 0.5 * perkLv('tests');
   autotestSpan = AUTOTEST_MS * mul;
   autotestLeft = Math.min(AUTOTEST_MAX_MS * mul, autotestLeft + autotestSpan);
@@ -753,11 +770,13 @@ function autotestShot() {
     autotestShots.push({ x0, y0, x1: target.x, y1: target.y, born: fxClock });
     sfx.zap();
     target.hp -= 1;
-    if (target.hp <= 0) { killBug(target, true); } else { burst(target.x, target.y, '#c9d6ff', 5); }
+    if (target.hp <= 0) { killBug(target, true); run.autotestKills += 1; } else { burst(target.x, target.y, '#c9d6ff', 5); }
   } else if (boss && boss.y > 0 && autotestTick % 2 === 0) { // босса бьёт вполсилы
     autotestShots.push({ x0, y0, x1: boss.x, y1: boss.y, born: fxClock });
     sfx.zap();
+    botFinishing = true;
     damageBoss(1);
+    botFinishing = false;
   }
   autotestTick += 1;
 }
@@ -859,7 +878,7 @@ function addShield(n) {
 function spawnBoss() {
   const size = Math.max(BOSS_SIZE * S, 96); // на телефоне масштаб S мал — босс не должен стать крошечным
   const maxHp = BOSS_HP_BASE + BOSS_HP_STEP * bossesDefeated;
-  boss = { x: W / 2, y: -size, size, hp: maxHp, maxHp, phase: 0, flash: 0, minionTimer: BOSS_MINION_MS * 0.5, dropTimer: BOSS_DROP_MS * 0.6 };
+  boss = { x: W / 2, y: -size, size, hp: maxHp, maxHp, phase: 0, flash: 0, minionTimer: BOSS_MINION_MS * 0.5, dropTimer: BOSS_DROP_MS * 0.6, lostAtSpawn: run.livesLost };
   showBanner('Завали Босса!', '#ff5470');
   sfx.bossIn();
   shake = Math.max(shake, 0.25);
@@ -890,6 +909,9 @@ function defeatBoss() {
   }
   score += reward;
   kills += 1;
+  run.bossKills += 1;
+  if (run.livesLost === boss.lostAtSpawn) { run.bossClean += 1; } // за весь бой не потеряно ни полсердца
+  if (botFinishing) { run.bossByBot += 1; }
   lives = Math.min(MAX_LIVES, lives + ALFA_HEAL);
   bossesDefeated += 1;
   boss = null;
@@ -1231,6 +1253,14 @@ function drawBugs() {
     } else {
       const w = sp.width / DPR;
       ctx.drawImage(sp, -w / 2, -w / 2, w, w);
+    }
+    if (b.behavior === 'autotest') { // кольцо: редкий бонус виден издалека
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(199, 146, 234, 0.75)';
+      ctx.lineWidth = 2 * S;
+      ctx.beginPath();
+      ctx.arc(0, 0, b.size * 0.78 * (1 + 0.08 * Math.sin(performance.now() / 180)), 0, Math.PI * 2);
+      ctx.stroke();
     }
     ctx.restore();
     if (b.kind.hp > 1 && b.hp < b.kind.hp) {
@@ -1661,6 +1691,8 @@ async function submitResult(finalScore, finalKills, durationMs) {
       kills: finalKills, score: finalScore, durationMs,
       bestCombo, wave, livesLost: Math.ceil(run.livesLost / 2), bonuses: run.bonuses,
       maxBombKills: run.maxBombKills, crocAtOneLife: run.crocAtOneLife,
+      bossKills: run.bossKills, bossClean: run.bossClean, bossByBot: run.bossByBot,
+      autotestPicks: run.autotestPicks, autotestKills: run.autotestKills,
       daily: mode === 'daily' && dailyInfo ? dailyInfo.date : undefined,
     });
     currentUser = data.user;

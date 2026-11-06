@@ -8,7 +8,10 @@ const emptyRow = () => ({
 });
 const game = (over = {}) => ({
   kills: 10, durationMs: 20000,
-  extra: { bestCombo: 3, wave: 1, livesLost: 2, maxBombKills: 0, crocAtOneLife: false, bonuses: { golden: 0, bomb: 0, freeze: 0, croc: 0 }, ...over },
+  extra: {
+    bestCombo: 3, wave: 1, livesLost: 2, maxBombKills: 0, crocAtOneLife: false, bonuses: { golden: 0, bomb: 0, freeze: 0, croc: 0 },
+    bossKills: 0, bossClean: 0, bossByBot: 0, autotestPicks: 0, autotestKills: 0, ...over,
+  },
 });
 
 test('каталог: коды уникальны, у каждой ачивки есть прогресс', () => {
@@ -175,4 +178,70 @@ test('tierInfo и rankLadder: уровень, текущий ранг и дос�
   assert.deepEqual(ladder.map((r) => r.reached), [true, true, true, false, false, false]);
   assert.equal(ladder.filter((r) => r.current).length, 1);
   assert.equal(ladder.find((r) => r.current).name, 'Мидл');
+});
+
+/* ---------- Босс и автотест ---------- */
+test('parseGameExtra: боссы и автотест — значения по умолчанию нулевые', () => {
+  const r = ach.parseGameExtra({}, { kills: 10, durationMs: 10000 });
+  assert.deepEqual([r.bossKills, r.bossClean, r.bossByBot, r.autotestPicks, r.autotestKills], [0, 0, 0, 0, 0]);
+});
+
+test('parseGameExtra: правдоподобные боссы и автотесты принимаются', () => {
+  const ctx = { kills: 200, durationMs: 120000 };
+  const r = ach.parseGameExtra({ bossKills: 2, bossClean: 1, bossByBot: 1, autotestPicks: 3, autotestKills: 40 }, ctx);
+  assert.ok(!r.error, r.error);
+  assert.deepEqual([r.bossKills, r.bossClean, r.bossByBot, r.autotestPicks, r.autotestKills], [2, 1, 1, 3, 40]);
+});
+
+test('parseGameExtra: отклоняет невозможные боссы и автотесты', () => {
+  const ctx = { kills: 100, durationMs: 60000 };
+  assert.ok(ach.parseGameExtra({ bossKills: 3 }, ctx).error, 'три босса за минуту');
+  assert.ok(ach.parseGameExtra({ bossKills: 1, bossClean: 2 }, ctx).error, 'чистых побед больше побед');
+  assert.ok(ach.parseGameExtra({ bossKills: 1, bossByBot: 2 }, ctx).error, 'побед от бота больше побед');
+  assert.ok(ach.parseGameExtra({ bossKills: 2 }, { kills: 1, durationMs: 120000 }).error, 'боссов больше, чем убитых');
+  assert.ok(ach.parseGameExtra({ autotestPicks: 6 }, ctx).error, 'автотестов слишком много для минуты');
+  assert.ok(ach.parseGameExtra({ autotestKills: 5 }, ctx).error, 'убитые автотестом без подобранного автотеста');
+  assert.ok(ach.parseGameExtra({ autotestPicks: 1, autotestKills: 101 }, ctx).error, 'автотест убил больше, чем убито всего');
+  assert.ok(ach.parseGameExtra({ bossKills: -1 }, ctx).error, 'отрицательное');
+  assert.ok(ach.parseGameExtra({ autotestPicks: 1.5 }, ctx).error, 'дробное');
+});
+
+test('applyGame: статистика боссов и автотеста копится, рекорд по боссам за партию — максимум', () => {
+  const a = ach.applyGame(ach.statsFromRow(emptyRow()), { ...game({ bossKills: 2, bossClean: 1, bossByBot: 1, autotestPicks: 2, autotestKills: 15 }), durationMs: 120000 });
+  const b = ach.applyGame(a, { ...game({ bossKills: 1, bossClean: 0, bossByBot: 0, autotestPicks: 1, autotestKills: 10 }), durationMs: 60000 });
+  assert.deepEqual([b.bossKills, b.bossClean, b.bossByBot, b.maxBossesGame, b.autotestPicks, b.autotestKills], [3, 1, 1, 2, 3, 25]);
+});
+
+test('ачивки за босса и автотест открываются по порогам', () => {
+  const base = ach.statsFromRow(emptyRow());
+  const has = (t, code) => ach.evaluate(t).includes(code);
+  assert.ok(!has(base, 'boss_first') && !has(base, 'autotest_first'));
+  assert.ok(has({ ...base, bossKills: 1 }, 'boss_first'));
+  assert.ok(!has({ ...base, bossKills: 4 }, 'boss_5') && has({ ...base, bossKills: 5 }, 'boss_5'));
+  assert.ok(!has({ ...base, maxBossesGame: 1 }, 'boss_double') && has({ ...base, maxBossesGame: 2 }, 'boss_double'));
+  assert.ok(has({ ...base, bossClean: 1 }, 'boss_clean'));
+  assert.ok(has({ ...base, bossByBot: 1 }, 'boss_bot'));
+  assert.ok(has({ ...base, autotestPicks: 1 }, 'autotest_first'));
+  assert.ok(!has({ ...base, autotestPicks: 4 }, 'autotest_5') && has({ ...base, autotestPicks: 5 }, 'autotest_5'));
+  assert.ok(!has({ ...base, autotestKills: 49 }, 'autotest_50') && has({ ...base, autotestKills: 50 }, 'autotest_50'));
+});
+
+test('статистика без новых полей (старые игроки) читается нулями и сохраняется через statsJson', () => {
+  const t = ach.statsFromRow({ ...emptyRow(), stats: { golden: 3 } });
+  assert.deepEqual([t.bossKills, t.autotestPicks, t.maxBossesGame], [0, 0, 0]);
+  const back = ach.statsFromRow({ ...emptyRow(), stats: ach.statsJson({ ...t, bossKills: 4, autotestKills: 12 }) });
+  assert.deepEqual([back.bossKills, back.autotestKills], [4, 12]);
+});
+
+test('титулы за боссов и QA открываются вместе с ачивками', () => {
+  assert.ok(!ach.availableTitles(0, new Set()).some((x) => x.code === 'title_boss'));
+  assert.ok(ach.availableTitles(0, new Set(['boss_5'])).some((x) => x.code === 'title_boss'));
+  assert.ok(ach.availableTitles(0, new Set(['autotest_5'])).some((x) => x.code === 'title_qa'));
+});
+
+test('каталог ачивок: коды и значки не повторяются', () => {
+  const codes = ach.ACHIEVEMENTS.map((x) => x.code);
+  const icons = ach.ACHIEVEMENTS.map((x) => x.icon);
+  assert.equal(new Set(codes).size, codes.length);
+  assert.equal(new Set(icons).size, icons.length);
 });

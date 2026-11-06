@@ -62,7 +62,7 @@ module.exports = function createProfileRouter({ pool, asyncH, authLimiter, setSe
       stats: {
         totalKills: u.total_kills, bestKillsGame: u.best_kills_game, bestScore: u.best_score, gamesPlayed: u.games_played,
         bestCombo: u.best_combo, bestWave: u.best_wave, golden: stats.golden, bombs: stats.bombs, freezes: stats.freezes,
-        crocs: stats.crocs, longestGameMs: stats.longestGameMs,
+        crocs: stats.crocs, longestGameMs: stats.longestGameMs, bossKills: stats.bossKills, autotestPicks: stats.autotestPicks,
       },
       rank: { ...tier, floor: progress.floor, ratio: progress.ratio, remaining: progress.remaining, next: progress.next },
       ladder: ach.rankLadder(u.total_kills),

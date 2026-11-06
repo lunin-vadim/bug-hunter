@@ -66,6 +66,8 @@
       ['Лучшее комбо', stats.bestCombo],
       ['Лучшая волна', stats.bestWave],
       ['Золотых', stats.golden],
+      ['Боссов', stats.bossKills],
+      ['Автотестов', stats.autotestPicks],
       ['Самая долгая', stats.longestGameMs ? fmtTime(stats.longestGameMs) : '—'],
     ];
     const grid = $('cab-stats');
