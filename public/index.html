@@ -78,6 +78,7 @@
           <li><span class="ic">🤖</span><span>Автотест<small>8 с сам бьёт ближних багов</small></span></li>
           <li><span class="ic">👾</span><span>Босс<small>с 1000 очков: зажми, пока не дополз</small></span></li>
           <li><span class="ic">🛡️ 🔧</span><span>Укрепления<small>падают во время босса: щит и патч</small></span></li>
+          <li><span class="ic">🎯 🧮</span><span>Перки<small>каждые 2 волны: выбери 1 из 3 улучшений</small></span></li>
           <li><span class="ic">🦟 🕷️ 🦂</span><span>Новые жуки<small>приходят с волнами: зигзаг, рывок, броня</small></span></li>
         </ul>
       </details>
@@ -240,6 +241,17 @@
       </section>
       </div>
   </aside>
+
+  <div id="perk-strip" class="perk-strip" aria-label="Улучшения"></div>
+
+  <div id="perk" class="perk" role="dialog" aria-modal="true" aria-labelledby="perk-title" hidden>
+    <div class="perk-box">
+      <p id="perk-wave" class="perk-kicker"></p>
+      <h2 id="perk-title">Выбери улучшение</h2>
+      <div id="perk-cards" class="perk-cards"></div>
+      <p class="perk-hint">Игра на паузе · клавиши <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></p>
+    </div>
+  </div>
 
   <div id="rankup" class="rankup" role="dialog" aria-modal="true" aria-labelledby="rankup-name" hidden>
     <div class="rankup-card">

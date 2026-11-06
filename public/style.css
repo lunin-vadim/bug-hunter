@@ -341,6 +341,37 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
 .avatar-opt.locked:hover { background: rgba(255, 255, 255, .06); }
 #cab-color:disabled { opacity: .4; cursor: not-allowed; }
 
+/* ---------- Перки: выбор между волнами ---------- */
+.perk {
+  position: fixed; inset: 0; z-index: 6; display: grid; place-items: center; padding: 16px; overflow-y: auto;
+  background: rgba(5, 7, 12, .8); backdrop-filter: blur(4px); animation: rankup-fade .2s ease;
+}
+.perk[hidden] { display: none; }
+.perk-box { width: min(760px, 100%); margin: auto; text-align: center; }
+.perk-kicker { margin: 0 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--brand); }
+.perk-box h2 { margin: 0 0 18px; font-family: var(--font-display); font-size: 26px; letter-spacing: -.01em; }
+.perk-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.perk-card {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 14px 16px;
+  color: inherit; font: inherit; text-align: center; cursor: pointer;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .02)), var(--surface);
+  border: 1px solid var(--line); border-radius: 18px;
+  transition: transform .15s, border-color .15s, box-shadow .15s;
+  animation: perk-in .4s cubic-bezier(.2, 1.1, .3, 1) backwards; animation-delay: calc(var(--i) * 80ms + 100ms);
+}
+.perk-card:hover, .perk-card:focus-visible { transform: translateY(-4px); border-color: var(--brand); box-shadow: 0 12px 32px -8px rgba(184, 240, 74, .35); outline: none; }
+.perk-card b { font-family: var(--font-display); font-size: 15px; letter-spacing: -.01em; }
+.perk-card small { font-size: 13px; line-height: 1.4; color: var(--muted); }
+.perk-icon { display: grid; place-items: center; width: 64px; height: 64px; margin-bottom: 4px; font-size: 32px; background: rgba(184, 240, 74, .1); border: 1px solid rgba(184, 240, 74, .3); border-radius: 18px; }
+.perk-key { position: absolute; top: 10px; left: 12px; display: grid; place-items: center; width: 22px; height: 22px; font-size: 12px; font-weight: 700; color: var(--muted); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); border-radius: 7px; }
+.perk-lvl { margin-top: auto; padding-top: 6px; font-size: 11px; font-style: normal; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); }
+.perk-hint { margin: 16px 0 0; font-size: 12px; color: var(--muted); }
+.perk-strip { position: fixed; left: 12px; bottom: 50px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; max-width: 60vw; pointer-events: none; }
+.perk-chip { position: relative; display: grid; place-items: center; width: 34px; height: 34px; font-size: 17px; background: rgba(18, 21, 28, .78); border: 1px solid rgba(184, 240, 74, .35); border-radius: 10px; }
+.perk-chip b { position: absolute; right: -4px; bottom: -4px; min-width: 15px; padding: 0 3px; font-size: 10px; line-height: 15px; text-align: center; color: var(--brand-ink); background: var(--brand); border-radius: 8px; }
+body:has(#overlay:not([hidden])) .perk-strip { display: none; }
+@keyframes perk-in { from { opacity: 0; transform: translateY(28px) scale(.94); } }
+
 /* ---------- Повышение ранга ---------- */
 .rankup {
   position: fixed; inset: 0; z-index: 7; display: grid; place-items: center; padding: 16px;
@@ -420,7 +451,7 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
 @keyframes toast-out { to { opacity: 0; transform: translateY(-8px); } }
 @keyframes toast-row { from { opacity: 0; transform: translateX(-10px); } }
 
-@media (hover: none) { .hint.keys { display: none; } }
+@media (hover: none) { .hint.keys, .perk-hint, .perk-key { display: none; } .perk-card { padding-left: 14px; } }
 @media (max-width: 560px) {
   #tools { top: 10px; right: 12px; gap: 6px; }
   /* карточка начинается под панелью значков и компактнее */
@@ -451,11 +482,20 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
   .rank-title b { font-size: 17px; }
   .rank-step small { font-size: 9px; }
   .rankup-card h2 { font-size: 26px; }
+  .perk-cards { grid-template-columns: 1fr; gap: 8px; }
+  .perk-card { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px 12px; padding: 12px 14px 12px 44px; text-align: left; }
+  .perk-icon { width: 46px; height: 46px; margin: 0; font-size: 24px; border-radius: 14px; grid-row: span 2; }
+  .perk-card b { flex: 1 1 0; min-width: 0; }
+  .perk-card small { flex-basis: calc(100% - 58px); margin-left: 58px; }
+  .perk-lvl { position: absolute; right: 12px; top: 10px; margin: 0; padding: 0; }
+  .perk-key { top: 50%; transform: translateY(-50%); }
+  .perk-box h2 { font-size: 22px; margin-bottom: 12px; }
+  .perk-strip { bottom: 46px; left: 8px; }
   .who-info b, .who-info small { max-width: 110px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .drawer, .drawer-handle, .rank-fill, #tools { transition: none; }
   .toast, .toast-list li { animation: none; }
-  .rankup, .rankup-card, .rankup-rays, .rankup-stage .rank-badge, .rankup-spark, .rank-step.current .rank-badge { animation: none; }
+  .perk, .perk-card, .rankup, .rankup-card, .rankup-rays, .rankup-stage .rank-badge, .rankup-spark, .rank-step.current .rank-badge { animation: none; }
   .rankup-spark { display: none; }
 }
