@@ -48,6 +48,11 @@
         <path d="M13 2 4 14h7l-1 8 9-12h-7z"/>
       </svg>
     </button>
+    <button id="btn-haptic" title="Вибрация" aria-label="Вибрация" aria-pressed="true" hidden>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="8" y="4" width="8" height="16" rx="2"/><path d="M4 8v8M20 8v8M2 10.5v3M22 10.5v3"/>
+      </svg>
+    </button>
     <button id="btn-full" title="Полный экран (F)" aria-label="Полный экран">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>
@@ -280,6 +285,8 @@
       </div>
     </div>
   </div>
+
+  <label class="haptic-sw" aria-hidden="true"><input id="haptic-switch" type="checkbox" switch tabindex="-1"></label>
 
   <div id="toasts" aria-live="polite"></div>
 

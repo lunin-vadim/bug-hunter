@@ -46,7 +46,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; c
 }
 #tools button:hover { background: rgba(48, 54, 68, .9); }
 #tools button:focus-visible, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-#btn-fx.off { opacity: .45; }
+#btn-fx.off, #btn-haptic.off { opacity: .45; }
+#btn-haptic[hidden] { display: none; }
+/* невидимый переключатель: единственный способ дать тактильный отклик в iOS Safari (см. game.js, iosTick) */
+.haptic-sw { position: fixed; left: -100px; top: -100px; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 #btn-pause .ic-play { display: none; }
 #btn-pause.paused .ic-play { display: block; }
 #btn-pause.paused .ic-pause { display: none; }

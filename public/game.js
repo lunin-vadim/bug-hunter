@@ -85,6 +85,7 @@ const MAX_SHIELD = 8;
 const BOSS_REACH_DAMAGE = 4;     // половинок сердца: прорвавшийся босс отнимает 2 сердца
 const STORAGE_KEY = 'bug-hunter-fullscreen:best';
 const FX_KEY = 'bug-hunter-fullscreen:fx';
+const HAPTIC_KEY = 'bug-hunter-fullscreen:haptics';
 
 const BUG_KINDS = [
   { emoji: '🐛', points: 1, hp: 1, size: 28, minSpeed: 32, maxSpeed: 55, weight: 6, behavior: 'normal', minWave: 1, fade: 0.15 },
@@ -127,6 +128,7 @@ const el = {
   sound: document.getElementById('btn-sound'),
   full: document.getElementById('btn-full'),
   fx: document.getElementById('btn-fx'),
+  haptic: document.getElementById('btn-haptic'),
   pause: document.getElementById('btn-pause'),
   meAvatar: document.getElementById('me-avatar'),
   meTitle: document.getElementById('me-title'),
@@ -256,6 +258,65 @@ const sfx = {
   patch: () => { tone(523, 0.1, 'sine', 0.1); tone(784, 0.16, 'sine', 0.1, null, 0.08); },
   bossDown: () => { [262, 330, 392, 523, 659, 784].forEach((f, i) => tone(f, 0.2, 'triangle', 0.12, null, i * 0.08)); tone(65, 0.6, 'sawtooth', 0.12, 30); },
 };
+
+/* ---------- Вибрация ---------- */
+// Android (Chrome и др.): navigator.vibrate. iOS Safari его не поддерживает вовсе, поэтому там — обходной путь:
+// переключение невидимого <input switch> даёт системный тактильный отклик, но только внутри жеста пользователя
+// (клик/касание). События вне жеста (потеря сердца, прорыв босса) на iPhone без вибрации.
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const touchDevice = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+const canHaptic = touchDevice && (typeof navigator.vibrate === 'function' || isIOS);
+let haptics = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+try { const saved = localStorage.getItem(HAPTIC_KEY); if (saved !== null) { haptics = saved === '1'; } } catch { /* ignore */ }
+let inGesture = false; // true, пока обрабатывается касание: только тогда работает iOS-обход
+let lastIosTick = 0;
+
+function iosTick() {
+  const now = performance.now();
+  if (!inGesture || now - lastIosTick < 40) { return; }
+  lastIosTick = now;
+  try { document.getElementById('haptic-switch').click(); } catch { /* ignore */ }
+}
+
+/** Вибрация: число — миллисекунды, массив — чередование «вибрация, пауза, …» */
+function haptic(pattern) {
+  if (!haptics || !canHaptic || !pattern) { return; }
+  try {
+    if (typeof navigator.vibrate === 'function') { navigator.vibrate(pattern); } else if (isIOS) { iosTick(); }
+  } catch { /* вибрация не критична */ }
+}
+
+// рисунок вибрации для каждого звука: пара «звук + отклик» всегда совпадает по моменту
+const HAPTICS = {
+  hit: (combo) => (combo >= 10 ? 14 : 10),
+  crack: 8,
+  life: 80,
+  golden: [15, 30, 15],
+  decoy: 40,
+  alfa: [30, 40, 60],
+  wave: 20,
+  freeze: 25,
+  bomb: 90,
+  over: [80, 60, 160],
+  event: 30,
+  fever: [20, 30, 20],
+  bossIn: [60, 40, 60],
+  bossHit: 12,
+  bossDown: [40, 30, 40, 30, 140],
+  shieldUp: 25,
+  shieldHit: 30,
+  patch: 20,
+  autotest: 25,
+  zap: 6,
+  rankUp: [30, 40, 30, 40, 90],
+};
+for (const [name, pattern] of Object.entries(HAPTICS)) {
+  const base = sfx[name];
+  sfx[name] = (...args) => {
+    haptic(typeof pattern === 'function' ? pattern(...args) : pattern);
+    return base(...args);
+  };
+}
 
 /* ---------- Музыка (WebAudio, 8-бит, без файлов) ---------- */
 const music = (() => {
@@ -1350,7 +1411,8 @@ function frame(ts) {
 /* ---------- Ввод и системные кнопки ---------- */
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  handleClick(e.clientX, e.clientY);
+  inGesture = true; // вибрация на iOS разрешена только внутри касания
+  try { handleClick(e.clientX, e.clientY); } finally { inGesture = false; }
 });
 
 function toggleFullscreen() {
@@ -1367,6 +1429,13 @@ function toggleSound() {
   try { localStorage.setItem('bug-hunter-fullscreen:muted', muted ? '1' : '0'); } catch { /* ignore */ }
   music.sync();
 }
+function toggleHaptic() {
+  haptics = !haptics;
+  el.haptic.classList.toggle('off', !haptics);
+  el.haptic.setAttribute('aria-pressed', String(haptics));
+  try { localStorage.setItem(HAPTIC_KEY, haptics ? '1' : '0'); } catch { /* ignore */ }
+  if (haptics) { inGesture = true; haptic(30); inGesture = false; } // «пробный» отклик при включении
+}
 function toggleFx() {
   fx = !fx;
   el.fx.classList.toggle('off', !fx);
@@ -1381,6 +1450,7 @@ el.start.addEventListener('click', primaryAction);
 el.full.addEventListener('click', toggleFullscreen);
 el.sound.addEventListener('click', toggleSound);
 el.fx.addEventListener('click', toggleFx);
+el.haptic.addEventListener('click', toggleHaptic);
 el.pause.addEventListener('click', onPauseButton);
 document.addEventListener('keydown', (e) => {
   if (e.repeat || document.body.dataset.panel || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) { return; }
@@ -1687,7 +1757,7 @@ function openPerks() {
     lvl.className = 'perk-lvl';
     lvl.textContent = p.consumable ? 'Разово' : `Ур. ${perkLv(p.id) + 1} из ${p.max}`;
     card.append(key, icon, name, desc, lvl);
-    card.addEventListener('click', () => choosePerk(p));
+    card.addEventListener('click', () => { inGesture = true; try { choosePerk(p); } finally { inGesture = false; } });
     box.append(card);
   });
   perkModal.hidden = false;
@@ -1799,6 +1869,9 @@ el.sound.classList.toggle('off', muted);
 el.sound.setAttribute('aria-pressed', String(muted));
 el.fx.classList.toggle('off', !fx);
 el.fx.setAttribute('aria-pressed', String(fx));
+el.haptic.hidden = !canHaptic; // кнопка нужна только на устройствах с вибрацией
+el.haptic.classList.toggle('off', !haptics);
+el.haptic.setAttribute('aria-pressed', String(haptics));
 el.stats.textContent = best ? `Рекорд: ${best}` : '';
 resize();
 updateHud();
