@@ -23,6 +23,10 @@ const SPAWN_DECAY_PER_WAVE = 0.85; // интервал спавна умножа
 const SPAWN_MIN_MS = 420;
 const ALFA_COOLDOWN_MS = 30000;    // Альфа-Бонус не чаще, чем раз в это время
 const ALFA_CLEAR_ZONE = 0.5;       // Альфа-Бонус чистит нижнюю часть поля (доля высоты до прода), а не весь экран
+// «Автотест»: бонус-бот сам устраняет багов, пока не закончится время (комбо и «Азарт» не трогает)
+const AUTOTEST_MS = 8000;
+const AUTOTEST_MAX_MS = 14000;   // подбор нового продлевает, но не бесконечно
+const AUTOTEST_TICK_MS = 450;    // как часто бот делает «выстрел»
 const THREATS = new Set(['normal', 'splitter', 'golden', 'dasher']); // баги, за пролёт которых отнимается жизнь
 const DASH_FROM = 0.3;             // с какой доли высоты паук делает рывок
 const DASH_MUL = 2.6;
@@ -76,6 +80,7 @@ const BUG_KINDS = [
   { emoji: '', image: ALFA_IMAGE, points: 0, hp: 1, size: 50, minSpeed: 38, maxSpeed: 55, weight: 0.25, behavior: 'alfa', minWave: 4 },
   { emoji: '🧊', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'freeze', minWave: 2 },
   { emoji: '💣', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'bomb', minWave: 2 },
+  { emoji: '🤖', points: 0, hp: 1, size: 34, minSpeed: 40, maxSpeed: 60, weight: 0.55, behavior: 'autotest', minWave: 3 },
   // новые враги, открываются с волнами
   { emoji: '🦟', points: 3, hp: 1, size: 22, minSpeed: 85, maxSpeed: 120, weight: 2, behavior: 'normal', ampMul: 3, minWave: 4, glow: 'rgba(255, 255, 255, 0.55)' },
   { emoji: '🕷️', points: 5, hp: 1, size: 30, minSpeed: 30, maxSpeed: 45, weight: 1.6, behavior: 'dasher', minWave: 6, glow: 'rgba(255, 255, 255, 0.6)' },
@@ -128,6 +133,7 @@ const el = {
 let W = 0, H = 0, DPR = 1, S = 1; // S — масштаб размеров/скоростей относительно окна
 let boss = null, bossesDefeated = 0, nextBossScore = BOSS_FIRST_SCORE, shield = 0;
 let ev = null, nextEventAt = EVENT_FIRST_AT_MS, lastEvent = null;
+let autotestLeft = 0, autotestTimer = 0, autotestShots = [], autotestTick = 0;
 let phase = 'idle'; // idle | playing | paused | over
 let bugs = [], splats = [], popups = [], particles = [];
 let score = 0, combo = 0, bestCombo = 0, kills = 0, lives = START_LIVES;
@@ -194,6 +200,8 @@ const sfx = {
   event: () => { tone(440, 0.12, 'square', 0.1); tone(660, 0.12, 'square', 0.1, null, 0.1); tone(880, 0.22, 'square', 0.1, null, 0.2); },
   fever: () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.12, 'square', 0.08, null, i * 0.06)); },
   rankUp: () => { [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, 0.22, 'triangle', 0.12, null, i * 0.1)); tone(131, 0.7, 'sawtooth', 0.08, 65, 0.1); },
+  autotest: () => { [330, 440, 554, 660].forEach((f, i) => tone(f, 0.08, 'square', 0.07, null, i * 0.05)); },
+  zap: () => tone(1100, 0.06, 'square', 0.05, 500),
   shieldUp: () => { tone(660, 0.1, 'triangle', 0.1); tone(990, 0.16, 'triangle', 0.1, null, 0.07); },
   shieldHit: () => tone(880, 0.12, 'triangle', 0.12, 440),
   patch: () => { tone(523, 0.1, 'sine', 0.1); tone(784, 0.16, 'sine', 0.1, null, 0.08); },
@@ -421,6 +429,7 @@ function resetGame() {
   slowLeft = 0; countdownLeft = 0;
   boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE; shield = 0;
   ev = null; nextEventAt = EVENT_FIRST_AT_MS; lastEvent = null;
+  autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0;
   run = newRunStats();
   banner = null; shake = 0; flash = 0;
 }
@@ -540,6 +549,49 @@ function eatEverything() {
   flash = 0.25;
   sfx.alfa();
   showBanner('Альфа-Бонус: нижняя зона чиста, +1 жизнь', '#ff5a4d');
+}
+
+function activateAutotest(b) {
+  autotestLeft = Math.min(AUTOTEST_MAX_MS, autotestLeft + AUTOTEST_MS);
+  burst(b.x, b.y, '#c792ea', 16);
+  sfx.autotest();
+  showBanner('🤖 Автотест: баги тают сами', '#c792ea');
+}
+
+function botX() {
+  return W / 2 + Math.sin(fxClock / 700) * W * 0.28;
+}
+
+/** Один «выстрел» бота: добивает самого опасного (ближайшего к проду) бага или бьёт босса */
+function autotestShot() {
+  const x0 = botX();
+  const y0 = prodY() - 56 * S;
+  let target = null;
+  for (const b of bugs) {
+    if (THREATS.has(b.behavior) && b.behavior !== 'golden' && b.y > 0 && (!target || b.y > target.y)) { target = b; }
+  }
+  if (target) {
+    autotestShots.push({ x0, y0, x1: target.x, y1: target.y, born: fxClock });
+    sfx.zap();
+    target.hp -= 1;
+    if (target.hp <= 0) { killBug(target, true); } else { burst(target.x, target.y, '#c9d6ff', 5); }
+  } else if (boss && boss.y > 0 && autotestTick % 2 === 0) { // босса бьёт вполсилы
+    autotestShots.push({ x0, y0, x1: boss.x, y1: boss.y, born: fxClock });
+    sfx.zap();
+    damageBoss(1);
+  }
+  autotestTick += 1;
+}
+
+function updateAutotest(ms) {
+  if (autotestLeft <= 0) { return; }
+  autotestLeft = Math.max(0, autotestLeft - ms);
+  autotestTimer += ms;
+  while (autotestTimer >= AUTOTEST_TICK_MS) {
+    autotestTimer -= AUTOTEST_TICK_MS;
+    autotestShot();
+  }
+  if (autotestLeft <= 0) { autotestTimer = 0; showBanner('🤖 Автотест завершён', '#9aa4b5'); }
 }
 
 function activateFreeze(b) {
@@ -759,6 +811,9 @@ function handleClick(px, py) {
       addPopup(target.x, target.y - target.size * 0.5, 'Щит +1', '#7fd8ff');
     }
     sfx.patch();
+  } else if (target.behavior === 'autotest') {
+    bugs = bugs.filter((x) => x.id !== target.id);
+    activateAutotest(target);
   } else if (target.behavior === 'freeze') {
     bugs = bugs.filter((x) => x.id !== target.id);
     activateFreeze(target);
@@ -814,6 +869,7 @@ function update(dt) {
 
   if (!boss && score >= nextBossScore) { spawnBoss(); }
   updateEvents(ms);
+  updateAutotest(ms);
 
   if (freezeLeft > 0) {
     freezeLeft = Math.max(0, freezeLeft - ms);
@@ -969,6 +1025,9 @@ function drawBugs() {
     } else if (b.behavior === 'dasher' && b.y > H * DASH_FROM) {
       ctx.shadowColor = '#ff5470';
       ctx.shadowBlur = 16;
+    } else if (b.behavior === 'autotest') {
+      ctx.shadowColor = '#c792ea';
+      ctx.shadowBlur = 18;
     } else if (b.kind.glow) { // тёмные жуки: подсветка, чтобы не терялись на фоне
       ctx.shadowColor = b.kind.glow;
       ctx.shadowBlur = 12;
@@ -1057,6 +1116,38 @@ function drawFever() {
   ctx.fillRect(0, 0, W, H);
 }
 
+function drawAutotest() {
+  const now = fxClock;
+  autotestShots = autotestShots.filter((s) => now - s.born < 160);
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (const s of autotestShots) {
+    const a = 1 - (now - s.born) / 160;
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = BRAND;
+    ctx.shadowColor = BRAND;
+    ctx.shadowBlur = 12;
+    ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.moveTo(s.x0, s.y0); ctx.lineTo(s.x1, s.y1); ctx.stroke();
+  }
+  ctx.restore();
+  if (autotestLeft <= 0) { return; }
+  const x = botX();
+  const y = prodY() - 56 * S + Math.sin(now / 240) * 3 * S;
+  const sp = getSprite('🤖', 36 * S);
+  const w = sp.width / DPR;
+  ctx.save();
+  ctx.shadowColor = '#c792ea';
+  ctx.shadowBlur = 16;
+  ctx.drawImage(sp, x - w / 2, y - w / 2, w, w);
+  ctx.restore();
+  const bw = 54 * S;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.fillRect(x - bw / 2, y + 26 * S, bw, 4 * S);
+  ctx.fillStyle = '#c792ea';
+  ctx.fillRect(x - bw / 2, y + 26 * S, bw * Math.min(1, autotestLeft / AUTOTEST_MS), 4 * S);
+}
+
 function drawEventBar() {
   if (!ev) { return; }
   const def = EVENTS[ev.type];
@@ -1094,6 +1185,7 @@ function render() {
   drawProdLine();
   drawBoss();
   drawBugs();
+  drawAutotest();
   drawEffects();
   drawSlowTint();
   drawFever();
