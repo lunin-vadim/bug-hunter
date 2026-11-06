@@ -86,6 +86,7 @@ const BOSS_REACH_DAMAGE = 4;     // половинок сердца: прорв�
 const STORAGE_KEY = 'bug-hunter-fullscreen:best';
 const FX_KEY = 'bug-hunter-fullscreen:fx';
 const HAPTIC_KEY = 'bug-hunter-fullscreen:haptics';
+const MUSIC_KEY = 'bug-hunter-fullscreen:music';
 
 const BUG_KINDS = [
   { emoji: '🐛', points: 1, hp: 1, size: 28, minSpeed: 32, maxSpeed: 55, weight: 6, behavior: 'normal', minWave: 1, fade: 0.15 },
@@ -129,6 +130,7 @@ const el = {
   full: document.getElementById('btn-full'),
   fx: document.getElementById('btn-fx'),
   haptic: document.getElementById('btn-haptic'),
+  music: document.getElementById('btn-music'),
   pause: document.getElementById('btn-pause'),
   meAvatar: document.getElementById('me-avatar'),
   meTitle: document.getElementById('me-title'),
@@ -215,6 +217,12 @@ let fx = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: redu
 try { const saved = localStorage.getItem(FX_KEY); if (saved !== null) { fx = saved === '1'; } } catch { /* ignore */ }
 let muted = false;
 try { muted = localStorage.getItem('bug-hunter-fullscreen:muted') === '1'; } catch { /* ignore */ }
+// музыка включается отдельно от звуковых эффектов (muted — только эффекты)
+let musicOn = true;
+try {
+  const savedMusic = localStorage.getItem(MUSIC_KEY);
+  if (savedMusic !== null) { musicOn = savedMusic === '1'; } else if (muted) { musicOn = false; } // раньше «без звука» глушило всё
+} catch { /* ignore */ }
 
 function tone(freq, dur, type = 'sine', vol = 0.12, slideTo = null, delay = 0) {
   if (muted) { return; }
@@ -416,7 +424,7 @@ const music = (() => {
   }
 
   /** Музыка играет, пока идёт партия и звук не выключен */
-  function sync() { if (phase === 'playing' && !muted && !perkOpen) { play(); } else { stop(); } }
+  function sync() { if (phase === 'playing' && musicOn && !perkOpen) { play(); } else { stop(); } }
 
   return { sync };
 })();
@@ -1427,6 +1435,12 @@ function toggleSound() {
   el.sound.classList.toggle('off', muted);
   el.sound.setAttribute('aria-pressed', String(muted));
   try { localStorage.setItem('bug-hunter-fullscreen:muted', muted ? '1' : '0'); } catch { /* ignore */ }
+}
+function toggleMusic() {
+  musicOn = !musicOn;
+  el.music.classList.toggle('off', !musicOn);
+  el.music.setAttribute('aria-pressed', String(!musicOn));
+  try { localStorage.setItem(MUSIC_KEY, musicOn ? '1' : '0'); } catch { /* ignore */ }
   music.sync();
 }
 function toggleHaptic() {
@@ -1449,6 +1463,7 @@ function primaryAction() {
 el.start.addEventListener('click', primaryAction);
 el.full.addEventListener('click', toggleFullscreen);
 el.sound.addEventListener('click', toggleSound);
+el.music.addEventListener('click', toggleMusic);
 el.fx.addEventListener('click', toggleFx);
 el.haptic.addEventListener('click', toggleHaptic);
 el.pause.addEventListener('click', onPauseButton);
@@ -1457,6 +1472,7 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'f' || k === 'а') { toggleFullscreen(); }
   else if (k === 'm' || k === 'ь') { toggleSound(); }
+  else if (k === 'n' || k === 'т') { toggleMusic(); }
   else if (k === 'v' || k === 'м') { toggleFx(); }
   else if ((k === 'r' || k === 'к') && (phase === 'paused' || phase === 'over')) { startGame(); }
   else if (k === 'p' || k === 'з' || k === 'escape') { setPaused(phase === 'playing'); }
@@ -1867,6 +1883,8 @@ el.logout.addEventListener('click', async () => {
 loadSession().then(loadDaily);
 el.sound.classList.toggle('off', muted);
 el.sound.setAttribute('aria-pressed', String(muted));
+el.music.classList.toggle('off', !musicOn);
+el.music.setAttribute('aria-pressed', String(!musicOn));
 el.fx.classList.toggle('off', !fx);
 el.fx.setAttribute('aria-pressed', String(fx));
 el.haptic.hidden = !canHaptic; // кнопка нужна только на устройствах с вибрацией

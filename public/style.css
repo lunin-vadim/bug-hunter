@@ -55,6 +55,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; c
 #btn-pause.paused .ic-pause { display: none; }
 #tools button:disabled { opacity: .35; cursor: default; }
 #tools button:disabled:hover { background: rgba(18, 21, 28, .72); }
+#btn-music .slash { display: none; }
+#btn-music.off .slash { display: inline; }
+#btn-music.off { opacity: .6; }
 #btn-sound .mute { display: none; }
 #btn-sound.off .mute { display: inline; }
 #btn-sound.off .wave { display: none; }
@@ -479,6 +482,11 @@ body:has(#overlay:not([hidden])) .perk-strip { display: none; }
 @keyframes toast-out { to { opacity: 0; transform: translateY(-8px); } }
 @keyframes toast-row { from { opacity: 0; transform: translateX(-10px); } }
 
+/* на очень узких экранах семь значков не помещаются в обычном размере */
+@media (max-width: 380px) {
+  #tools { gap: 4px; right: 8px; }
+  #tools button { width: 36px; height: 36px; }
+}
 @media (hover: none) { .hint.keys, .perk-hint, .perk-key { display: none; } .perk-card { padding-left: 14px; } }
 @media (max-width: 560px) {
   #tools { top: 10px; right: 12px; gap: 6px; }
