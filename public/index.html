@@ -141,6 +141,11 @@
         <button id="btn-start" class="primary">Играть</button>
         <button id="btn-board" class="secondary">Рейтинг</button>
       </div>
+      <details id="audio" class="audio">
+        <summary>Громкость</summary>
+        <label class="vol"><span>Эффекты</span><input id="vol-sfx" type="range" min="0" max="100" step="5" aria-label="Громкость эффектов"><output id="vol-sfx-out">100%</output></label>
+        <label class="vol"><span>Музыка</span><input id="vol-music" type="range" min="0" max="100" step="5" aria-label="Громкость музыки"><output id="vol-music-out">100%</output></label>
+      </details>
       <p class="hint keys"><kbd>Space</kbd> старт · <kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>F</kbd> экран · <kbd>M</kbd> звук · <kbd>N</kbd> музыка</p>
     </div>
   </div>

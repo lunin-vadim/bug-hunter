@@ -87,6 +87,8 @@ const STORAGE_KEY = 'bug-hunter-fullscreen:best';
 const FX_KEY = 'bug-hunter-fullscreen:fx';
 const HAPTIC_KEY = 'bug-hunter-fullscreen:haptics';
 const MUSIC_KEY = 'bug-hunter-fullscreen:music';
+const VOL_SFX_KEY = 'bug-hunter-fullscreen:vol-sfx';
+const VOL_MUSIC_KEY = 'bug-hunter-fullscreen:vol-music';
 
 const BUG_KINDS = [
   { emoji: '🐛', points: 1, hp: 1, size: 28, minSpeed: 32, maxSpeed: 55, weight: 6, behavior: 'normal', minWave: 1, fade: 0.15 },
@@ -219,13 +221,22 @@ let muted = false;
 try { muted = localStorage.getItem('bug-hunter-fullscreen:muted') === '1'; } catch { /* ignore */ }
 // музыка включается отдельно от звуковых эффектов (muted — только эффекты)
 let musicOn = true;
+// громкость 0..1: эффекты и музыка настраиваются отдельно (1 = прежняя громкость)
+let sfxVol = 1;
+let musicVol = 1;
+try {
+  const s = Number(localStorage.getItem(VOL_SFX_KEY));
+  const m = Number(localStorage.getItem(VOL_MUSIC_KEY));
+  if (localStorage.getItem(VOL_SFX_KEY) !== null && s >= 0 && s <= 1) { sfxVol = s; }
+  if (localStorage.getItem(VOL_MUSIC_KEY) !== null && m >= 0 && m <= 1) { musicVol = m; }
+} catch { /* ignore */ }
 try {
   const savedMusic = localStorage.getItem(MUSIC_KEY);
   if (savedMusic !== null) { musicOn = savedMusic === '1'; } else if (muted) { musicOn = false; } // раньше «без звука» глушило всё
 } catch { /* ignore */ }
 
 function tone(freq, dur, type = 'sine', vol = 0.12, slideTo = null, delay = 0) {
-  if (muted) { return; }
+  if (muted || sfxVol <= 0) { return; }
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     const t0 = audioCtx.currentTime + delay;
@@ -234,7 +245,7 @@ function tone(freq, dur, type = 'sine', vol = 0.12, slideTo = null, delay = 0) {
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t0);
     if (slideTo) { osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur); }
-    gain.gain.setValueAtTime(vol, t0);
+    gain.gain.setValueAtTime(vol * sfxVol, t0);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     osc.connect(gain).connect(audioCtx.destination);
     osc.start(t0);
@@ -408,7 +419,7 @@ const music = (() => {
       if (audioCtx.state === 'suspended') { audioCtx.resume(); }
       const now = audioCtx.currentTime;
       master.gain.cancelScheduledValues(now);
-      master.gain.setTargetAtTime(LEVEL, now, 0.15);
+      master.gain.setTargetAtTime(LEVEL * musicVol, now, 0.15);
       step = 0;
       nextTime = now + 0.05;
       timer = setInterval(tick, 40);
@@ -424,9 +435,23 @@ const music = (() => {
   }
 
   /** Музыка играет, пока идёт партия и звук не выключен */
-  function sync() { if (phase === 'playing' && musicOn && !perkOpen) { play(); } else { stop(); } }
+  function sync() { if (phase === 'playing' && musicOn && musicVol > 0 && !perkOpen) { play(); } else { stop(); } }
 
-  return { sync };
+  /** Громкость меняется на ходу, без перезапуска мелодии */
+  function setLevel() {
+    if (master) { master.gain.setTargetAtTime(LEVEL * musicVol, audioCtx.currentTime, 0.05); }
+  }
+
+  /** Короткий фрагмент мелодии, чтобы на паузе можно было подобрать громкость на слух */
+  let previewTimer = null;
+  function preview() {
+    if (!musicOn || musicVol <= 0 || phase === 'playing') { return; }
+    play();
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => { if (phase !== 'playing') { stop(); } }, 1800);
+  }
+
+  return { sync, setLevel, preview };
 })();
 
 /* ---------- Размеры и ресайз ---------- */
@@ -1436,6 +1461,39 @@ function toggleSound() {
   el.sound.setAttribute('aria-pressed', String(muted));
   try { localStorage.setItem('bug-hunter-fullscreen:muted', muted ? '1' : '0'); } catch { /* ignore */ }
 }
+/** Ползунок громкости: значение 0..100 → 0..1, сохранение и подпись */
+function paintSlider(input, out, value) {
+  input.value = Math.round(value * 100);
+  input.style.setProperty('--p', `${input.value}%`);
+  out.textContent = `${input.value}%`;
+}
+
+function bindVolume(kind) {
+  const input = document.getElementById(`vol-${kind}`);
+  const out = document.getElementById(`vol-${kind}-out`);
+  if (!input) { return; }
+  paintSlider(input, out, kind === 'sfx' ? sfxVol : musicVol);
+  input.addEventListener('input', () => {
+    const v = Number(input.value) / 100;
+    paintSlider(input, out, v);
+    if (kind === 'sfx') {
+      sfxVol = v;
+      if (v > 0 && muted) { toggleSound(); } // крутят ручку громкости — значит, хотят слышать
+      try { localStorage.setItem(VOL_SFX_KEY, String(v)); } catch { /* ignore */ }
+    } else {
+      musicVol = v;
+      if (v > 0 && !musicOn) { toggleMusic(); }
+      try { localStorage.setItem(VOL_MUSIC_KEY, String(v)); } catch { /* ignore */ }
+      music.setLevel();
+      music.sync();
+    }
+  });
+  // по отпусканию — «пробный» звук нужной громкости
+  input.addEventListener('change', () => {
+    if (kind === 'sfx') { tone(520, 0.09, 'square', 0.07, 220); } else { music.preview(); }
+  });
+}
+
 function toggleMusic() {
   musicOn = !musicOn;
   el.music.classList.toggle('off', !musicOn);
@@ -1464,6 +1522,8 @@ el.start.addEventListener('click', primaryAction);
 el.full.addEventListener('click', toggleFullscreen);
 el.sound.addEventListener('click', toggleSound);
 el.music.addEventListener('click', toggleMusic);
+bindVolume('sfx');
+bindVolume('music');
 el.fx.addEventListener('click', toggleFx);
 el.haptic.addEventListener('click', toggleHaptic);
 el.pause.addEventListener('click', onPauseButton);
