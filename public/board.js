@@ -17,6 +17,9 @@
   const heads = [...board.querySelectorAll('th[data-col]')];
   // порядок столбцов в таблице → ключ сортировки
   const COLS = ['single', 'kills', 'score'];
+  const dailyInfoEl = $('board-daily');
+  const headTexts = heads.map((h) => h.textContent);
+  const DAILY_HEADS = ['Волна', 'Убито', 'Очки'];
 
   let sort = 'kills';
   let isOpen = false;
@@ -48,7 +51,11 @@
       t.classList.toggle('active', on);
       t.setAttribute('aria-selected', String(on));
     }
-    heads.forEach((h) => h.classList.toggle('sorted', h.dataset.col === next));
+    // во вкладке «Сегодня» те же три столбца показывают волну, убитых и очки, отсортировано по очкам
+    heads.forEach((h, i) => {
+      h.textContent = next === 'daily' ? DAILY_HEADS[i] : headTexts[i];
+      h.classList.toggle('sorted', h.dataset.col === (next === 'daily' ? 'score' : next));
+    });
     load();
   }
 
@@ -83,11 +90,38 @@
     td.append(wrap);
   }
 
+  /** Вкладка «Сегодня»: рейтинг задачи дня; дата и мутатор над таблицей */
+  async function loadDailyTab(id) {
+    const data = await api('/api/daily');
+    if (id !== loadId) { return; }
+    const d = new Date(`${data.date}T00:00:00Z`);
+    dailyInfoEl.textContent = `📅 ${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' })} · ${data.modifier.icon} ${data.modifier.name}: ${data.modifier.desc}`;
+    dailyInfoEl.hidden = false;
+    if (!data.top.length) { messageRow('Сегодня ещё никто не играл — станьте первым!'); }
+    for (const r of data.top) {
+      const tr = body.insertRow();
+      if (currentUser && r.username === currentUser.username) { tr.className = 'mine'; }
+      tr.insertCell().textContent = r.rank;
+      playerCell(tr.insertCell(), r);
+      [r.wave, r.kills, r.score].forEach((v, i) => {
+        const td = tr.insertCell();
+        td.className = i === 2 ? 'num sorted' : 'num';
+        td.textContent = v;
+      });
+    }
+    if (data.me && data.me.rank > data.top.length) {
+      meLine.textContent = `Ваше место: ${data.me.rank} · очки: ${data.me.score} · убито: ${data.me.kills} · волна: ${data.me.wave}`;
+      meLine.hidden = false;
+    }
+  }
+
   async function load() {
     const id = ++loadId;
     body.textContent = '';
     meLine.hidden = true;
+    dailyInfoEl.hidden = true;
     try {
+      if (sort === 'daily') { await loadDailyTab(id); return; }
       const data = await api(`/api/leaderboard?sort=${sort}`);
       if (id !== loadId) { return; } // пришёл устаревший ответ после смены вкладки
       if (!data.top.length) { messageRow('Пока никого — станьте первым!'); }

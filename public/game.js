@@ -57,6 +57,7 @@ const COMBO_MULT_STEP = 10;
 const COMBO_MULT_MAX = 3;
 // случайные события: неожиданные всплески между волнами
 const EVENT_FIRST_AT_MS = 35000;
+const STORM_GAP_MS = [7000, 12000];  // «Шторм»: события идут одно за другим
 const EVENT_GAP_MS = [18000, 30000]; // пауза до следующего события (случайно в этих пределах)
 const EVENTS = {
   rain: { icon: '🌧️', name: 'Дождь багов', ms: 7000, color: '#7fd8ff' },
@@ -150,6 +151,38 @@ let boss = null, bossesDefeated = 0, nextBossScore = BOSS_FIRST_SCORE, shield = 
 let ev = null, nextEventAt = EVENT_FIRST_AT_MS, lastEvent = null;
 let autotestLeft = 0, autotestTimer = 0, autotestShots = [], autotestTick = 0, autotestSpan = AUTOTEST_MS;
 let perks = {}, perkPending = false, perkOpen = false, perkChoices = [];
+
+/* ---------- Задача дня: у всех на сутки один сид ---------- */
+let mode = 'normal'; // 'normal' | 'daily'
+let dailyInfo = null; // ответ /api/daily: { date, modifier, top, me }
+// три независимых потока случайности: набор жуков и события не зависят от того, сколько раз игрок кликнул
+let rng = { spawn: Math.random, bug: Math.random, perk: Math.random };
+const dayMod = () => (mode === 'daily' && dailyInfo ? dailyInfo.modifier.id : null);
+
+/** FNV-1a: тот же хеш, что в daily.js на сервере */
+function hashString(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** Быстрый детерминированный генератор (mulberry32) */
+function mulberry32(a) {
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seedRng(date) {
+  const seed = hashString(date);
+  rng = { spawn: mulberry32(seed ^ 0xA5A5A5A5), bug: mulberry32(seed ^ 0x5A5A5A5A), perk: mulberry32(seed ^ 0x1234ABCD) };
+}
 let phase = 'idle'; // idle | playing | paused | over
 let bugs = [], splats = [], popups = [], particles = [];
 let score = 0, combo = 0, bestCombo = 0, kills = 0, lives = START_LIVES;
@@ -379,7 +412,7 @@ getImage(ALFA_IMAGE); // прогреваем кэш до первого поя�
 /** Перки меняют частоту выпадения бонусов */
 function perkWeight(k) {
   if (k.behavior === 'autotest') { return 1 + 0.6 * perkLv('tests'); }
-  if (k.behavior === 'golden') { return 1 + perkLv('gold'); }
+  if (k.behavior === 'golden') { return (1 + perkLv('gold')) * (dayMod() === 'gold' ? 3 : 1); }
   if (k.behavior === 'bomb') { return 1 + 0.6 * perkLv('sapper'); }
   return 1;
 }
@@ -390,7 +423,7 @@ function pickKind() {
     .filter((k) => wave >= (k.minWave || 1) && (k.behavior !== 'alfa' || alfaReady))
     .map((k) => ({ k, w: (k.weight / (1 + (k.fade || 0) * (wave - 1))) * perkWeight(k) }));
   const total = pool.reduce((s, p) => s + p.w, 0);
-  let r = Math.random() * total;
+  let r = rng.spawn() * total;
   for (const p of pool) {
     r -= p.w;
     if (r <= 0) { return p.k; }
@@ -400,7 +433,7 @@ function pickKind() {
 
 function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
   const inWave = Math.max(0, Math.min(1, (elapsed - (nextWaveAt - WAVE_EVERY_MS)) / WAVE_EVERY_MS));
-  const speedBoost = Math.min(SPEED_CAP, 1 + (wave - 1) * SPEED_STEP_PER_WAVE + inWave * SPEED_STEP_IN_WAVE) * 0.9 ** perkLv('slow');
+  const speedBoost = Math.min(SPEED_CAP, 1 + (wave - 1) * SPEED_STEP_PER_WAVE + inWave * SPEED_STEP_IN_WAVE) * 0.9 ** perkLv('slow') * (dayMod() === 'fast' ? 1.2 : 1);
   if (kind.behavior === 'alfa') { lastAlfaAt = elapsed; }
   bugs.push({
     id: nextId++,
@@ -408,14 +441,14 @@ function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
     emoji: kind.emoji,
     image: kind.image || null,
     behavior: kind.behavior,
-    x: x ?? (kind.size * S + Math.random() * (W - kind.size * S * 2)),
+    x: x ?? (kind.size * S + rng.bug() * (W - kind.size * S * 2)),
     y: y ?? -kind.size * S,
-    speed: (kind.minSpeed + Math.random() * (kind.maxSpeed - kind.minSpeed)) * S * speedBoost * speedMul,
+    speed: (kind.minSpeed + rng.bug() * (kind.maxSpeed - kind.minSpeed)) * S * speedBoost * speedMul,
     hp: kind.hp,
     points: kind.points,
     size: kind.size * S,
-    phase: Math.random() * Math.PI * 2,
-    amp: (10 + Math.random() * 25) * S * (kind.ampMul || 1),
+    phase: rng.bug() * Math.PI * 2,
+    amp: (10 + rng.bug() * 25) * S * (kind.ampMul || 1),
     baseX: 0,
     canSplit: kind.behavior === 'splitter' && canSplit,
   });
@@ -448,25 +481,34 @@ function showBanner(text, color) { banner = { text, color, left: BANNER_MS }; }
 /* ---------- Игровая логика ---------- */
 function resetGame() {
   bugs = []; splats = []; popups = []; particles = [];
-  score = 0; combo = 0; bestCombo = 0; kills = 0; lives = START_LIVES;
+  score = 0; combo = 0; bestCombo = 0; kills = 0; lives = dayMod() === 'hearts' ? 6 : START_LIVES;
   elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastAlfaAt = -Infinity;
   slowLeft = 0; countdownLeft = 0;
   boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE; shield = 0;
-  ev = null; nextEventAt = EVENT_FIRST_AT_MS; lastEvent = null;
+  ev = null; nextEventAt = dayMod() === 'storm' ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null;
   autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0; autotestSpan = AUTOTEST_MS;
   perks = {}; perkPending = false; closePerks(); renderPerkStrip();
   run = newRunStats();
   banner = null; shake = 0; flash = 0;
 }
 
-function startGame() {
+/** Задача дня стартует только при загруженной задаче; иначе — обычная игра */
+function startGame(m = mode) {
+  mode = m === 'daily' && dailyInfo ? 'daily' : 'normal';
+  if (mode === 'daily') { seedRng(dailyInfo.date); } else { rng = { spawn: Math.random, bug: Math.random, perk: Math.random }; }
   resetGame();
   phase = 'playing';
   overlay.hidden = true;
   el.saveStatus.hidden = true;
   hud.hidden = false;
   lastTs = performance.now();
+  el.best.previousElementSibling.textContent = mode === 'daily' ? 'Лучший день' : 'Рекорд';
+  if (mode === 'daily') {
+    const m = dailyInfo.modifier;
+    showBanner(`${m.icon} ${m.name}: ${m.desc}`, '#b8f04a');
+  }
   updateHud();
+  renderDaily();
   music.sync();
 }
 
@@ -474,15 +516,25 @@ function endGame() {
   phase = 'over';
   music.sync();
   sfx.over();
-  const isRecord = score > best;
-  if (isRecord) { best = score; saveBest(best); }
-  el.title.textContent = isRecord ? 'Новый рекорд' : 'Игра окончена';
-  el.text.textContent = 'Релиз сорван: баги добрались до продакшена.';
+  const daily = mode === 'daily' && dailyInfo;
+  let isRecord;
+  if (daily) {
+    isRecord = score > dailyBestToday();
+    if (isRecord) { saveDailyBest(score); }
+  } else {
+    isRecord = score > best;
+    if (isRecord) { best = score; saveBest(best); }
+  }
+  el.title.textContent = daily ? (isRecord ? 'Рекорд дня' : 'Задача дня') : (isRecord ? 'Новый рекорд' : 'Игра окончена');
+  el.text.textContent = daily
+    ? `${dailyInfo.modifier.icon} ${dailyInfo.modifier.name}: релиз сорван, баги добрались до продакшена.`
+    : 'Релиз сорван: баги добрались до продакшена.';
   el.help.hidden = true;
-  el.stats.textContent = `Очки: ${score} · Убито: ${kills} · Лучшее комбо: ${bestCombo} · Волна: ${wave} · Рекорд: ${best}`;
+  el.stats.textContent = `Очки: ${score} · Убито: ${kills} · Лучшее комбо: ${bestCombo} · Волна: ${wave} · ${daily ? 'Лучший сегодня' : 'Рекорд'}: ${daily ? dailyBestToday() : best}`;
   el.start.textContent = 'Ещё раз';
   overlay.hidden = false;
   updateHud();
+  renderDaily();
   submitResult(score, kills, Math.round(elapsed));
 }
 
@@ -496,6 +548,7 @@ function setPaused(p) {
     el.stats.textContent = '';
     el.start.textContent = 'Продолжить';
     overlay.hidden = false;
+    renderDaily();
     music.sync();
   } else if (!p && phase === 'paused') {
     phase = 'playing';
@@ -527,7 +580,7 @@ function loseLife(x = W / 2) {
 }
 
 const perkLv = (id) => perks[id] || 0;
-const comboStep = () => COMBO_MULT_STEP - 2 * perkLv('azart');
+const comboStep = () => Math.max(4, COMBO_MULT_STEP - 2 * perkLv('azart') - (dayMod() === 'azart' ? 4 : 0));
 const hitMul = () => 1 + 0.35 * perkLv('sniper');
 
 function comboMult() {
@@ -674,7 +727,7 @@ function spawnWall() {
 
 function startEvent() {
   const types = Object.keys(EVENTS).filter((t) => t !== lastEvent);
-  const type = types[Math.floor(Math.random() * types.length)];
+  const type = types[Math.floor(rng.spawn() * types.length)];
   const def = EVENTS[type];
   lastEvent = type;
   showBanner(`${def.icon} ${def.name}!`, def.color);
@@ -687,16 +740,17 @@ function updateEvents(ms) {
     ev.left -= ms;
     if (ev.left <= 0) { ev = null; }
   }
-  if (!ev && !boss && wave >= 2 && elapsed >= nextEventAt) {
+  if (!ev && !boss && (wave >= 2 || dayMod() === 'storm') && elapsed >= nextEventAt) {
     startEvent();
-    nextEventAt = elapsed + EVENT_GAP_MS[0] + Math.random() * (EVENT_GAP_MS[1] - EVENT_GAP_MS[0]) + (ev ? ev.left : 0);
+    const gap = dayMod() === 'storm' ? STORM_GAP_MS : EVENT_GAP_MS;
+    nextEventAt = elapsed + gap[0] + rng.spawn() * (gap[1] - gap[0]) + (ev ? ev.left : 0);
   }
 }
 
 /* ---------- Босс ---------- */
 function pickDrop() {
   const total = BOSS_DROPS.reduce((s, k) => s + k.weight, 0);
-  let r = Math.random() * total;
+  let r = rng.spawn() * total;
   for (const k of BOSS_DROPS) {
     r -= k.weight;
     if (r <= 0) { return k; }
@@ -774,7 +828,7 @@ function updateBoss(dt, pace) {
   boss.minionTimer -= dt * 1000 * pace;
   if (boss.minionTimer <= 0 && boss.y > 0) {
     boss.minionTimer = Math.max(1100, BOSS_MINION_MS - 250 * bossesDefeated);
-    if (bugs.length < MAX_BUGS) { spawnBug(BUG_KINDS[Math.floor(Math.random() * 3)], boss.x, boss.y + boss.size * 0.4, false, 1.4); }
+    if (bugs.length < MAX_BUGS) { spawnBug(BUG_KINDS[Math.floor(rng.spawn() * 3)], boss.x, boss.y + boss.size * 0.4, false, 1.4); }
   }
   if (boss.y + boss.size * 0.35 >= line) {
     const bx = boss.x;
@@ -918,7 +972,7 @@ function update(dt) {
     if (ev && ev.type === 'gold') { iv = 650; }
     while (spawnTimer >= iv && bugs.length < MAX_BUGS) {
       spawnTimer -= iv;
-      if (ev && ev.type === 'rain') { spawnBug(BUG_KINDS[Math.random() < 0.7 ? 0 : 1]); }
+      if (ev && ev.type === 'rain') { spawnBug(BUG_KINDS[rng.spawn() < 0.7 ? 0 : 1]); }
       else if (ev && ev.type === 'gold') { spawnBug(BUG_KINDS.find((k) => k.behavior === 'golden')); }
       else { spawnBug(pickKind()); }
     }
@@ -1255,7 +1309,7 @@ function updateHud() {
     h.className = left >= 2 ? 'heart' : left === 1 ? 'heart half' : 'heart empty';
   });
   el.lives.setAttribute('aria-label', `Жизни: ${Math.max(0, lives) / 2} из ${MAX_LIVES / 2}`);
-  el.best.textContent = Math.max(best, score);
+  el.best.textContent = Math.max(mode === 'daily' ? dailyBestToday() : best, score);
 }
 
 /* ---------- Цикл ---------- */
@@ -1320,11 +1374,10 @@ function toggleFx() {
   try { localStorage.setItem(FX_KEY, fx ? '1' : '0'); } catch { /* ignore */ }
 }
 function primaryAction() {
-  if (phase === 'paused') { setPaused(false); } else if (phase !== 'playing') { startGame(); }
+  if (phase === 'paused') { setPaused(false); } else if (phase !== 'playing') { startGame('normal'); }
 }
 
 el.start.addEventListener('click', primaryAction);
-if (window.matchMedia('(min-width: 561px)').matches) { el.help.open = true; } // на телефоне легенда свёрнута
 el.full.addEventListener('click', toggleFullscreen);
 el.sound.addEventListener('click', toggleSound);
 el.fx.addEventListener('click', toggleFx);
@@ -1388,6 +1441,7 @@ async function authSubmit(kind) {
     currentUser = data.user;
     el.authPass.value = '';
     renderUser();
+    loadDaily();
   } catch (e) {
     setAuthError(e.message);
   }
@@ -1402,6 +1456,52 @@ async function loadSession() {
   renderUser();
 }
 
+/* ---------- Задача дня: карточка на стартовом экране ---------- */
+const dailyBox = document.getElementById('daily');
+const dailyKey = () => `bug-hunter-fullscreen:daily:${dailyInfo.date}`;
+
+/** Лучший результат за сегодня: серверный (если вошли) или локальный, смотря что выше */
+function dailyBestToday() {
+  if (!dailyInfo) { return 0; }
+  let local = 0;
+  try { local = Number(localStorage.getItem(dailyKey())) || 0; } catch { /* ignore */ }
+  return Math.max(dailyInfo.me ? dailyInfo.me.score : 0, local);
+}
+function saveDailyBest(v) {
+  try { localStorage.setItem(dailyKey(), String(v)); } catch { /* ignore */ }
+}
+
+async function loadDaily() {
+  try {
+    dailyInfo = await api('/api/daily');
+  } catch {
+    dailyInfo = null; // нет сервера — без задачи дня
+  }
+  renderDaily();
+}
+
+function renderDaily() {
+  if (!dailyBox) { return; }
+  dailyBox.hidden = !dailyInfo || phase === 'paused' || phase === 'playing';
+  if (!dailyInfo) { return; }
+  const d = new Date(`${dailyInfo.date}T00:00:00Z`);
+  document.getElementById('daily-month').textContent = d.toLocaleDateString('ru-RU', { month: 'short', timeZone: 'UTC' }).replace('.', '');
+  document.getElementById('daily-day').textContent = d.getUTCDate();
+  const m = dailyInfo.modifier;
+  document.getElementById('daily-mod-ic').textContent = m.icon;
+  document.getElementById('daily-mod-name').textContent = m.name;
+  document.getElementById('daily-mod-desc').textContent = m.desc;
+  const best = dailyBestToday();
+  const left = Date.parse(`${dailyInfo.date}T00:00:00Z`) + 24 * 3600 * 1000 - Date.now();
+  const h = Math.max(0, Math.floor(left / 3600000));
+  const min = Math.max(0, Math.floor((left % 3600000) / 60000));
+  document.getElementById('daily-best').textContent = best ? `Лучший сегодня: ${best}` : 'Сегодня ещё не пробовали';
+  document.getElementById('daily-left').textContent = `Новая через ${h} ч ${min} мин`;
+  document.getElementById('btn-daily').textContent = best ? 'Побить свой результат' : 'Играть задачу дня';
+}
+
+document.getElementById('btn-daily')?.addEventListener('click', () => { if (phase !== 'playing') { startGame('daily'); } });
+
 async function submitResult(finalScore, finalKills, durationMs) {
   if (!currentUser) {
     el.saveStatus.textContent = 'Войдите, чтобы попасть в рейтинг';
@@ -1415,10 +1515,14 @@ async function submitResult(finalScore, finalKills, durationMs) {
       kills: finalKills, score: finalScore, durationMs,
       bestCombo, wave, livesLost: Math.ceil(run.livesLost / 2), bonuses: run.bonuses,
       maxBombKills: run.maxBombKills, crocAtOneLife: run.crocAtOneLife,
+      daily: mode === 'daily' && dailyInfo ? dailyInfo.date : undefined,
     });
     currentUser = data.user;
     renderUser();
-    el.saveStatus.textContent = `Сохранено · всего убито: ${currentUser.totalKills}`;
+    el.saveStatus.textContent = data.daily
+      ? `Задача дня: место ${data.daily.rank}${data.daily.isBest ? ' · новый лучший результат' : ''} · лучший ${data.daily.best}`
+      : `Сохранено · всего убито: ${currentUser.totalKills}`;
+    if (data.daily) { loadDaily(); }
     if (data.newRank) { setTimeout(() => showRankUp(data.newRank), 900); } // даём увидеть итоги партии
     toastAchievements(data.newAchievements || []);
   } catch (e) {
@@ -1524,7 +1628,7 @@ let perkKey = null;
 function pickPerks() {
   const pool = PERKS.filter((p) => (p.consumable || perkLv(p.id) < p.max) && (!p.when || p.when()));
   for (let i = pool.length - 1; i > 0; i--) { // тасуем и берём первые три
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng.perk() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
   return pool.slice(0, PERK_COUNT);
@@ -1686,10 +1790,11 @@ el.logout.addEventListener('click', async () => {
   try { await api('/api/logout', {}); } catch { /* ignore */ }
   currentUser = null;
   renderUser();
+  loadDaily();
 });
 
 /* ---------- Старт ---------- */
-loadSession();
+loadSession().then(loadDaily);
 el.sound.classList.toggle('off', muted);
 el.sound.setAttribute('aria-pressed', String(muted));
 el.fx.classList.toggle('off', !fx);

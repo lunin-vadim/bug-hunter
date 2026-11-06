@@ -114,6 +114,17 @@
         </dl>
       </div>
 
+      <div id="daily" class="daily" hidden>
+        <div class="daily-cal" aria-hidden="true"><small id="daily-month"></small><b id="daily-day"></b></div>
+        <div class="daily-body">
+          <span class="daily-kicker">Задача дня</span>
+          <p class="daily-mod"><span id="daily-mod-ic"></span> <b id="daily-mod-name"></b><span class="daily-mod-desc"> — <span id="daily-mod-desc"></span></span></p>
+          <small id="daily-best"></small>
+          <small id="daily-left" class="daily-left"></small>
+        </div>
+        <button id="btn-daily" class="secondary daily-btn">Играть задачу дня</button>
+      </div>
+
       <p id="save-status" class="stats small" hidden></p>
       <div class="actions">
         <button id="btn-start" class="primary">Играть</button>
@@ -130,11 +141,13 @@
       <button id="btn-board-close" class="icon-btn" aria-label="Закрыть рейтинг">×</button>
     </header>
     <div class="tabs" role="tablist" aria-label="Сортировка рейтинга">
-      <button id="tab-kills" class="tab active" role="tab" aria-selected="true" data-sort="kills" title="Сколько багов устранено за всё время">За всё время</button>
+      <button id="tab-kills" class="tab active" role="tab" aria-selected="true" data-sort="kills" title="Сколько багов устранено за всё время">Всего</button>
       <button id="tab-single" class="tab" role="tab" aria-selected="false" data-sort="single" title="Максимум багов за одну партию">За раз</button>
       <button id="tab-score" class="tab" role="tab" aria-selected="false" data-sort="score" title="Лучший счёт за партию">Очки</button>
+      <button id="tab-daily" class="tab" role="tab" aria-selected="false" data-sort="daily" title="Лучшие результаты сегодняшней задачи дня">Сегодня</button>
     </div>
     <div class="drawer-body">
+      <p id="board-daily" class="board-daily" hidden></p>
       <table class="board">
         <thead><tr><th>#</th><th>Игрок</th><th class="num" data-col="single" title="Максимум багов за одну партию">За раз</th><th class="num" data-col="kills" title="Багов за всё время">Всего</th><th class="num" data-col="score" title="Лучший счёт">Очки</th></tr></thead>
         <tbody id="board-body"></tbody>

@@ -46,3 +46,7 @@ CREATE TABLE IF NOT EXISTS user_achievements (
   unlocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, code)
 );
+
+-- ---------- Задача дня ----------
+ALTER TABLE games ADD COLUMN IF NOT EXISTS daily DATE;
+CREATE INDEX IF NOT EXISTS games_daily_idx ON games (daily, score DESC) WHERE daily IS NOT NULL;
