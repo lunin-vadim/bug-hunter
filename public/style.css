@@ -421,6 +421,12 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
 .perk-chip { position: relative; display: grid; place-items: center; width: 34px; height: 34px; font-size: 17px; background: rgba(18, 21, 28, .78); border: 1px solid rgba(184, 240, 74, .35); border-radius: 10px; }
 .perk-chip b { position: absolute; right: -4px; bottom: -4px; min-width: 15px; padding: 0 3px; font-size: 10px; line-height: 15px; text-align: center; color: var(--brand-ink); background: var(--brand); border-radius: 8px; }
 body:has(#overlay:not([hidden])) .perk-strip { display: none; }
+.perk-card.picked { transform: scale(1.06); border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand), 0 16px 40px -8px rgba(184, 240, 74, .55); animation: perk-pick .45s ease-out; }
+.perk-card.picked::after { content: '✓'; position: absolute; top: 8px; right: 12px; font-size: 18px; font-weight: 700; color: var(--brand); }
+.perk-card.dim { opacity: .25; transform: scale(.95); pointer-events: none; transition: opacity .25s, transform .25s; }
+.perk-chip.pop { animation: perk-chip-pop .8s ease-out; }
+@keyframes perk-pick { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1.06); } }
+@keyframes perk-chip-pop { 0% { transform: scale(.3); box-shadow: 0 0 0 0 rgba(184, 240, 74, .9); } 50% { transform: scale(1.6); } 100% { transform: scale(1); box-shadow: 0 0 0 16px rgba(184, 240, 74, 0); } }
 @keyframes perk-in { from { opacity: 0; transform: translateY(28px) scale(.94); } }
 
 /* ---------- Повышение ранга ---------- */
@@ -552,6 +558,6 @@ body:has(#overlay:not([hidden])) .perk-strip { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .drawer, .drawer-handle, .rank-fill, #tools { transition: none; }
   .toast, .toast-list li { animation: none; }
-  .perk, .perk-card, .rankup, .rankup-card, .rankup-rays, .rankup-stage .rank-badge, .rankup-spark, .rank-step.current .rank-badge { animation: none; }
+  .perk, .perk-card, .perk-chip.pop, .rankup, .rankup-card, .rankup-rays, .rankup-stage .rank-badge, .rankup-spark, .rank-step.current .rank-badge { animation: none; }
   .rankup-spark { display: none; }
 }

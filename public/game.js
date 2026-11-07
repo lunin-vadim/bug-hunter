@@ -32,15 +32,16 @@ const AUTOTEST_COOLDOWN_MS = 60000;
 const PERK_FIRST_WAVE = 3;
 const PERK_EVERY = 2;
 const PERK_COUNT = 3;
+const PERK_PICK_MS = 450;        // сколько показываем выбранную карточку, прежде чем вернуться в игру
 const PERKS = [
   { id: 'sniper', icon: '🎯', name: 'Снайпер', max: 3, desc: 'Радиус клика +35%' },
   { id: 'backup', icon: '❤️', name: 'Бэкап', consumable: true, desc: 'Сразу +1 сердце', when: () => lives <= MAX_LIVES - 2 },
-  { id: 'tests', icon: '🤖', name: 'Тест-покрытие', max: 3, desc: 'Автотест длится на 50% дольше и выпадает чаще' },
-  { id: 'gold', icon: '🐝', name: 'Золотая жила', max: 3, desc: 'Золотых жуков вдвое больше, бонус за них +2' },
+  { id: 'tests', icon: '🤖', name: 'Тест-покрытие', max: 3, desc: 'Сразу выпускает Автотест; он длится на 50% дольше и выпадает чаще' },
+  { id: 'gold', icon: '🐝', name: 'Золотая жила', max: 3, desc: 'Золотых жуков вдвое больше, бонус за них +2. Один сразу на поле' },
   { id: 'firewall', icon: '🛡️', name: 'Файрвол', consumable: true, desc: 'Щит на 4 прорыва прямо сейчас' },
-  { id: 'slow', icon: '🧊', name: 'Охлаждение', max: 3, desc: 'Все баги медленнее на 10%' },
+  { id: 'slow', icon: '🧊', name: 'Охлаждение', max: 3, desc: 'Все баги медленнее на 10%. Плюс заморозка на 4 с сразу' },
   { id: 'azart', icon: '🔥', name: 'Азарт+', max: 2, desc: 'Множитель серии включается раньше: на 2 попадания' },
-  { id: 'sapper', icon: '💣', name: 'Сапёрка', max: 3, desc: 'Hotfix с радиусом +40% и бомбы выпадают чаще' },
+  { id: 'sapper', icon: '💣', name: 'Сапёрка', max: 3, desc: 'Hotfix с радиусом +40% и бомбы выпадают чаще. Одна сразу на поле' },
   { id: 'points', icon: '🧮', name: 'Бонусные очки', max: 3, desc: '+1 очко за каждого устранённого бага' },
 ];
 const THREATS = new Set(['normal', 'splitter', 'golden', 'dasher']); // баги, за пролёт которых отнимается жизнь
@@ -158,7 +159,7 @@ let boss = null, bossesDefeated = 0, nextBossScore = BOSS_FIRST_SCORE, shield = 
 let ev = null, nextEventAt = EVENT_FIRST_AT_MS, lastEvent = null;
 let autotestLeft = 0, autotestTimer = 0, autotestShots = [], autotestTick = 0, autotestSpan = AUTOTEST_MS, lastAutotestAt = -Infinity;
 let botFinishing = false; // true, пока выстрел бота наносит урон боссу: так считаем «добил автотестом»
-let perks = {}, perkPending = false, perkOpen = false, perkChoices = [];
+let perks = {}, perkPending = false, perkOpen = false, perkChoosing = false, perkChoices = [];
 
 /* ---------- Задача дня: у всех на сутки один сид ---------- */
 let mode = 'normal'; // 'normal' | 'daily'
@@ -1810,7 +1811,7 @@ function pickPerks() {
   return pool.slice(0, PERK_COUNT);
 }
 
-function renderPerkStrip() {
+function renderPerkStrip(popId) {
   if (!perkStrip) { return; }
   perkStrip.textContent = '';
   for (const p of PERKS) {
@@ -1820,6 +1821,7 @@ function renderPerkStrip() {
     chip.className = 'perk-chip';
     chip.title = `${p.name}: ${p.desc}`;
     chip.textContent = p.icon;
+    if (p.id === popId) { chip.classList.add('pop'); }
     if (lv > 1) {
       const n = document.createElement('b');
       n.textContent = lv;
@@ -1831,6 +1833,7 @@ function renderPerkStrip() {
 
 function closePerks() {
   perkOpen = false;
+  perkChoosing = false;
   if (perkModal) { perkModal.hidden = true; }
   if (document.body.dataset.panel === 'perk') { delete document.body.dataset.panel; }
   if (perkKey) { document.removeEventListener('keydown', perkKey); perkKey = null; }
@@ -1880,16 +1883,40 @@ function openPerks() {
 }
 
 function choosePerk(p) {
-  if (!perkOpen) { return; }
+  if (!perkOpen || perkChoosing) { return; }
+  perkChoosing = true;
   if (p.id === 'backup') { lives = Math.min(MAX_LIVES, lives + 2); }
   else if (p.id === 'firewall') { addShield(SHIELD_CHARGES); }
   else { perks[p.id] = perkLv(p.id) + 1; }
+  sfx.fever();
+  // сначала показываем, что выбрано: карточка подсвечивается, остальные гаснут
+  document.querySelectorAll('#perk-cards .perk-card').forEach((card, i) => {
+    card.classList.add(perkChoices[i] === p ? 'picked' : 'dim');
+  });
+  setTimeout(() => { if (perkChoosing) { finishPerk(p); } }, PERK_PICK_MS);
+}
+
+/** Перк должен быть заметен сразу, а не через минуту: что-то происходит на поле в момент выбора */
+function dropBonus(behavior, x) {
+  if (bugs.length >= MAX_BUGS) { return; }
+  spawnBug(BUG_KINDS.find((k) => k.behavior === behavior), x);
+}
+function applyPerkNow(p) {
+  if (p.id === 'tests' && !bugs.some((b) => b.behavior === 'autotest')) { dropBonus('autotest', W / 2); }
+  else if (p.id === 'gold') { dropBonus('golden', W * 0.35); }
+  else if (p.id === 'sapper') { dropBonus('bomb', W * 0.65); }
+  else if (p.id === 'slow') { slowLeft = Math.max(slowLeft, SLOW_MS); }
+}
+
+function finishPerk(p) {
   closePerks();
   countdownLeft = 1000; // секунда на то, чтобы собраться
   lastTickSec = 0;
-  showBanner(`${p.icon} ${p.name}${p.consumable ? '' : ` ×${perkLv(p.id)}`}`, '#b8f04a');
-  sfx.fever();
-  renderPerkStrip();
+  const lv = perkLv(p.id);
+  showBanner(`${p.icon} ${p.name}${p.consumable ? '' : ` ×${lv}`}`, '#b8f04a');
+  toast(p.icon, p.consumable ? p.name : `${p.name} · ур. ${lv} из ${p.max}`, p.desc);
+  renderPerkStrip(p.id);
+  applyPerkNow(p);
   updateHud();
   music.sync();
 }
