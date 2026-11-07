@@ -6,6 +6,7 @@ const START_LIVES = 10;
 const MAX_LIVES = 10;
 const REFACTOR_HEAL = 2; // Рефакторинг возвращает целое сердце
 const HIT_RADIUS_BONUS = 20;
+const RING_REF_SIZE = 28;        // размер обычного жука: по нему рисуем кольцо радиуса клика («Снайпер»)
 const GOLDEN_BONUS = 5;
 const GOLDEN_FREEZE_MS = 2500;
 const REFACTOR_BONUS = 10;
@@ -34,7 +35,7 @@ const PERK_EVERY = 2;
 const PERK_COUNT = 3;
 const PERK_PICK_MS = 450;        // сколько показываем выбранную карточку, прежде чем вернуться в игру
 const PERKS = [
-  { id: 'sniper', icon: '🎯', name: 'Снайпер', max: 3, desc: 'Радиус клика +35%' },
+  { id: 'sniper', icon: '🎯', name: 'Снайпер', max: 3, desc: 'Радиус клика +35%. Зона видна кольцом у курсора' },
   { id: 'backup', icon: '❤️', name: 'Бэкап', consumable: true, desc: 'Сразу +1 сердце', when: () => lives <= MAX_LIVES - 2 },
   { id: 'tests', icon: '🤖', name: 'Тест-покрытие', max: 3, desc: 'Сразу выпускает Автотест; он длится на 50% дольше и выпадает чаще' },
   { id: 'gold', icon: '🐝', name: 'Золотая жила', max: 3, desc: 'Золотых жуков вдвое больше, бонус за них +2. Один сразу на поле' },
@@ -201,6 +202,8 @@ let elapsed = 0, spawnTimer = 0, freezeLeft = 0, boostLeft = 0, wave = 1, nextWa
 let banner = null; // { text, color, left }
 let shake = 0, flash = 0;
 let slowLeft = 0, countdownLeft = 0, lastTickSec = 0;
+let ptr = { x: 0, y: 0, at: 0, mouse: false, inside: false }; // последний указатель: для кольца «Снайпера»
+let sniperPulseAt = 0;
 let run = newRunStats(); // расширенная статистика партии для ачивок
 
 function newRunStats() {
@@ -592,7 +595,7 @@ function resetGame() {
   bugs = []; splats = []; popups = []; particles = [];
   score = 0; combo = 0; bestCombo = 0; kills = 0; lives = dayMod() === 'hearts' ? 6 : START_LIVES;
   elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastRefactorAt = -Infinity;
-  slowLeft = 0; countdownLeft = 0;
+  slowLeft = 0; countdownLeft = 0; sniperPulseAt = 0;
   boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE; shield = 0;
   ev = null; nextEventAt = dayMod() === 'storm' ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null;
   autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0; autotestSpan = AUTOTEST_MS; lastAutotestAt = -Infinity;
@@ -1405,6 +1408,7 @@ function render() {
   drawSlowTint();
   drawFever();
   ctx.restore();
+  drawSniperRing();
   drawBossBar();
   drawEventBar();
   drawBanner();
@@ -1412,6 +1416,37 @@ function render() {
   if (fx && flash > 0) {
     ctx.fillStyle = `rgba(255, 255, 255, ${flash * 0.5})`;
     ctx.fillRect(0, 0, W, H);
+  }
+}
+
+/** Зона клика «Снайпера»: радиус, в котором клик попадает по обычному жуку */
+function sniperRadius() { return (0.6 * RING_REF_SIZE + HIT_RADIUS_BONUS * hitMul()) * S; }
+function ring(x, y, r, alpha, dashed) {
+  ctx.save();
+  ctx.setLineDash(dashed ? [6 * S, 5 * S] : []);
+  ctx.lineWidth = 2 * S;
+  ctx.fillStyle = `rgba(184, 240, 74, ${alpha * 0.1})`;
+  ctx.strokeStyle = `rgba(184, 240, 74, ${alpha})`;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+function drawSniperRing() {
+  if (!perkLv('sniper') || perkOpen) { return; }
+  const now = performance.now();
+  const r = sniperRadius();
+  if (phase === 'playing') {
+    // мышь: кольцо следует за курсором; касание: вспыхивает в точке тапа и гаснет
+    const a = ptr.mouse ? (ptr.inside ? 0.6 : 0) : Math.max(0, 1 - (now - ptr.at) / 450) * 0.8;
+    if (a > 0) { ring(ptr.x, ptr.y, r, a, true); }
+  }
+  const t = (now - sniperPulseAt) / 1000; // при выборе перка: кольцо расходится от центра до нового радиуса
+  if (sniperPulseAt && fx && t < 1) {
+    const e = 1 - (1 - t) ** 3;
+    ring(W / 2, H / 2, r * e, 1 - t, false);
+    ring(W / 2, H / 2, r, 0.5 * (1 - t), true);
   }
 }
 
@@ -1471,8 +1506,13 @@ function frame(ts) {
 }
 
 /* ---------- Ввод и системные кнопки ---------- */
+canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'mouse') { ptr = { x: e.clientX, y: e.clientY, at: performance.now(), mouse: true, inside: true }; }
+});
+canvas.addEventListener('pointerleave', () => { ptr.inside = false; });
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
+  ptr = { x: e.clientX, y: e.clientY, at: performance.now(), mouse: e.pointerType === 'mouse', inside: true };
   inGesture = true; // вибрация на iOS разрешена только внутри касания
   try { handleClick(e.clientX, e.clientY); } finally { inGesture = false; }
 });
@@ -1906,6 +1946,7 @@ function applyPerkNow(p) {
   else if (p.id === 'gold') { dropBonus('golden', W * 0.35); }
   else if (p.id === 'sapper') { dropBonus('bomb', W * 0.65); }
   else if (p.id === 'slow') { slowLeft = Math.max(slowLeft, SLOW_MS); }
+  else if (p.id === 'sniper') { sniperPulseAt = performance.now(); }
 }
 
 function finishPerk(p) {
