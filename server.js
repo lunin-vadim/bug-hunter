@@ -27,7 +27,7 @@ const MIN_GAME_MS = 8000;
 const MAX_KILLS_PER_SEC = 12;
 // на одно убийство: до 8 очков за скорпиона + бонус серии 3, всё это ×3 за «Азарт»; запас на золото и боссов
 const MAX_SCORE_PER_KILL = 40;
-const MAX_KILLS_BASE = 60; // запас на массовые убийства (Альфа-Бонус, Hotfix)
+const MAX_KILLS_BASE = 60; // запас на массовые убийства (Рефакторинг, Hotfix)
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 const app = express();

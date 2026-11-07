@@ -4,13 +4,12 @@
 // жизни считаем в половинках сердца: 10 = 5 сердец, попадание бага на прод отнимает 1 (полсердца)
 const START_LIVES = 10;
 const MAX_LIVES = 10;
-const ALFA_HEAL = 2; // Альфа-Бонус возвращает целое сердце
+const REFACTOR_HEAL = 2; // Рефакторинг возвращает целое сердце
 const HIT_RADIUS_BONUS = 20;
 const GOLDEN_BONUS = 5;
 const GOLDEN_FREEZE_MS = 2500;
-const ALFA_BONUS = 10;
-const ALFA_FREEZE_MS = 1500;
-const ALFA_IMAGE = 'assets/alfa-bonus.png';
+const REFACTOR_BONUS = 10;
+const REFACTOR_FREEZE_MS = 1500;
 const DECOY_PENALTY = 2;
 const WAVE_EVERY_MS = 30000;
 const WAVE_BOOST_MS = 5000;
@@ -21,8 +20,8 @@ const SPEED_CAP = 2.2;
 const SPAWN_START_MS = 1700;
 const SPAWN_DECAY_PER_WAVE = 0.85; // интервал спавна умножается на это каждую волну
 const SPAWN_MIN_MS = 420;
-const ALFA_COOLDOWN_MS = 30000;    // Альфа-Бонус не чаще, чем раз в это время
-const ALFA_CLEAR_ZONE = 0.5;       // Альфа-Бонус чистит нижнюю часть поля (доля высоты до прода), а не весь экран
+const REFACTOR_COOLDOWN_MS = 30000;    // Рефакторинг не чаще, чем раз в это время
+const REFACTOR_CLEAR_ZONE = 0.5;       // Рефакторинг чистит нижнюю часть поля (доля высоты до прода), а не весь экран
 // «Автотест»: бонус-бот сам устраняет багов, пока не закончится время (комбо и «Азарт» не трогает)
 const AUTOTEST_MS = 6000;
 const AUTOTEST_MAX_MS = 9000;    // подбор нового продлевает, но не бесконечно
@@ -99,7 +98,7 @@ const BUG_KINDS = [
   { emoji: '🪳', points: 4, hp: 2, size: 32, minSpeed: 45, maxSpeed: 70, weight: 2, behavior: 'splitter', minWave: 3 },
   { emoji: '🐝', points: 6, hp: 1, size: 28, minSpeed: 45, maxSpeed: 65, weight: 1, behavior: 'golden', minWave: 2 },
   { emoji: '🐌', points: 0, hp: 1, size: 26, minSpeed: 40, maxSpeed: 65, weight: 1.2, behavior: 'decoy', minWave: 3 },
-  { emoji: '', image: ALFA_IMAGE, points: 0, hp: 1, size: 50, minSpeed: 38, maxSpeed: 55, weight: 0.25, behavior: 'alfa', minWave: 4 },
+  { emoji: '🧹', points: 0, hp: 1, size: 50, minSpeed: 38, maxSpeed: 55, weight: 0.25, behavior: 'refactor', minWave: 4 },
   { emoji: '🧊', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'freeze', minWave: 2 },
   { emoji: '💣', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'bomb', minWave: 2 },
   { emoji: '🤖', points: 0, hp: 1, size: 40, minSpeed: 38, maxSpeed: 52, weight: 0.4, behavior: 'autotest', minWave: 3 },
@@ -197,14 +196,14 @@ let bugs = [], splats = [], popups = [], particles = [];
 let score = 0, combo = 0, bestCombo = 0, kills = 0, lives = START_LIVES;
 let best = loadBest();
 let nextId = 1;
-let elapsed = 0, spawnTimer = 0, freezeLeft = 0, boostLeft = 0, wave = 1, nextWaveAt = WAVE_EVERY_MS, lastAlfaAt = -Infinity;
+let elapsed = 0, spawnTimer = 0, freezeLeft = 0, boostLeft = 0, wave = 1, nextWaveAt = WAVE_EVERY_MS, lastRefactorAt = -Infinity;
 let banner = null; // { text, color, left }
 let shake = 0, flash = 0;
 let slowLeft = 0, countdownLeft = 0, lastTickSec = 0;
 let run = newRunStats(); // расширенная статистика партии для ачивок
 
 function newRunStats() {
-  // ключи `croc` и `crocAtOneLife` — часть формата /api/score и сохранённой статистики, относятся к Альфа-Бонусу
+  // ключи `croc` и `crocAtOneLife` — часть формата /api/score и сохранённой статистики, относятся к бонусу «Рефакторинг» (раньше назывался иначе)
   return {
     livesLost: 0 /* в половинках сердца */, maxBombKills: 0, crocAtOneLife: false, bonuses: { golden: 0, bomb: 0, freeze: 0, croc: 0 },
     bossKills: 0, bossClean: 0, bossByBot: 0, autotestPicks: 0, autotestKills: 0, // для ачивок про босса и автотест
@@ -265,7 +264,7 @@ const sfx = {
   life: () => tone(220, 0.35, 'sawtooth', 0.14, 70),
   golden: () => { tone(660, 0.1, 'triangle', 0.1); tone(880, 0.1, 'triangle', 0.1, null, 0.08); tone(1320, 0.18, 'triangle', 0.1, null, 0.16); },
   decoy: () => tone(200, 0.2, 'square', 0.09, 100),
-  alfa: () => { [392, 523, 659, 784].forEach((f, i) => tone(f, 0.18, 'triangle', 0.12, null, i * 0.09)); },
+  refactor: () => { [392, 523, 659, 784].forEach((f, i) => tone(f, 0.18, 'triangle', 0.12, null, i * 0.09)); },
   wave: () => tone(330, 0.25, 'sine', 0.1, 660),
   freeze: () => { tone(1200, 0.25, 'sine', 0.09, 500); tone(900, 0.3, 'triangle', 0.07, 400, 0.1); },
   bomb: () => { tone(120, 0.35, 'sawtooth', 0.16, 40); tone(240, 0.2, 'square', 0.08, 60, 0.02); },
@@ -319,7 +318,7 @@ const HAPTICS = {
   life: 80,
   golden: [15, 30, 15],
   decoy: 40,
-  alfa: [30, 40, 60],
+  refactor: [30, 40, 60],
   wave: 20,
   freeze: 25,
   bomb: 90,
@@ -497,7 +496,7 @@ function getSprite(emoji, size) {
   return sp;
 }
 
-/* ---------- Спрайты-картинки (бонус Альфа-Бонус) ---------- */
+/* ---------- Спрайты-картинки (общий механизм для бонусов с изображением) ---------- */
 const imageCache = new Map();
 function getImage(src) {
   let img = imageCache.get(src);
@@ -508,7 +507,6 @@ function getImage(src) {
   }
   return img.complete && img.naturalWidth ? img : null; // пока не загрузилась — не рисуем
 }
-getImage(ALFA_IMAGE); // прогреваем кэш до первого появления бонуса
 
 /* ---------- Спавн ---------- */
 /** Перки меняют частоту выпадения бонусов */
@@ -526,10 +524,10 @@ function autotestReady() {
 }
 
 function pickKind() {
-  const alfaReady = elapsed - lastAlfaAt >= ALFA_COOLDOWN_MS;
+  const refactorReady = elapsed - lastRefactorAt >= REFACTOR_COOLDOWN_MS;
   const autotestOk = autotestReady();
   const pool = BUG_KINDS
-    .filter((k) => wave >= (k.minWave || 1) && (k.behavior !== 'alfa' || alfaReady) && (k.behavior !== 'autotest' || autotestOk))
+    .filter((k) => wave >= (k.minWave || 1) && (k.behavior !== 'refactor' || refactorReady) && (k.behavior !== 'autotest' || autotestOk))
     .map((k) => ({ k, w: (k.weight / (1 + (k.fade || 0) * (wave - 1))) * perkWeight(k) }));
   const total = pool.reduce((s, p) => s + p.w, 0);
   let r = rng.spawn() * total;
@@ -543,7 +541,7 @@ function pickKind() {
 function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
   const inWave = Math.max(0, Math.min(1, (elapsed - (nextWaveAt - WAVE_EVERY_MS)) / WAVE_EVERY_MS));
   const speedBoost = Math.min(SPEED_CAP, 1 + (wave - 1) * SPEED_STEP_PER_WAVE + inWave * SPEED_STEP_IN_WAVE) * 0.9 ** perkLv('slow') * (dayMod() === 'fast' ? 1.2 : 1);
-  if (kind.behavior === 'alfa') { lastAlfaAt = elapsed; }
+  if (kind.behavior === 'refactor') { lastRefactorAt = elapsed; }
   if (kind.behavior === 'autotest') { lastAutotestAt = elapsed; sfx.rareSpawn(); } // редкий гость: даём о себе знать
   bugs.push({
     id: nextId++,
@@ -592,7 +590,7 @@ function showBanner(text, color) { banner = { text, color, left: BANNER_MS }; }
 function resetGame() {
   bugs = []; splats = []; popups = []; particles = [];
   score = 0; combo = 0; bestCombo = 0; kills = 0; lives = dayMod() === 'hearts' ? 6 : START_LIVES;
-  elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastAlfaAt = -Infinity;
+  elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastRefactorAt = -Infinity;
   slowLeft = 0; countdownLeft = 0;
   boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE; shield = 0;
   ev = null; nextEventAt = dayMod() === 'storm' ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null;
@@ -733,15 +731,15 @@ function eatEverything() {
   run.bonuses.croc += 1;
   damageBoss(8);
   if (lives <= 2) { run.crocAtOneLife = true; } // на последнем сердце
-  const zoneTop = prodY() * (1 - ALFA_CLEAR_ZONE); // чистим нижнюю часть поля, ближе к проду
+  const zoneTop = prodY() * (1 - REFACTOR_CLEAR_ZONE); // чистим нижнюю часть поля, ближе к проду
   const victims = bugs.filter((b) => THREATS.has(b.behavior) && b.y >= zoneTop);
   victims.forEach((b) => killBug(b, true));
-  freezeLeft = Math.max(freezeLeft, ALFA_FREEZE_MS);
-  lives = Math.min(MAX_LIVES, lives + ALFA_HEAL);
-  score += ALFA_BONUS;
+  freezeLeft = Math.max(freezeLeft, REFACTOR_FREEZE_MS);
+  lives = Math.min(MAX_LIVES, lives + REFACTOR_HEAL);
+  score += REFACTOR_BONUS;
   flash = 0.25;
-  sfx.alfa();
-  showBanner('Альфа-Бонус: нижняя зона чиста, +1 жизнь', '#ff5a4d');
+  sfx.refactor();
+  showBanner('🧹 Рефакторинг: нижняя зона чиста, +1 жизнь', '#5be3a5');
 }
 
 function activateAutotest(b) {
@@ -802,7 +800,7 @@ function activateFreeze(b) {
 
 function detonate(b) {
   const r = BOMB_RADIUS * S * (1 + 0.4 * perkLv('sapper'));
-  const victims = bugs.filter((v) => v.behavior !== 'alfa' && (v.x - b.x) ** 2 + (v.y - b.y) ** 2 <= r * r);
+  const victims = bugs.filter((v) => v.behavior !== 'refactor' && (v.x - b.x) ** 2 + (v.y - b.y) ** 2 <= r * r);
   let bombKills = 0;
   run.bonuses.bomb += 1;
   for (const v of victims) {
@@ -912,7 +910,7 @@ function defeatBoss() {
   run.bossKills += 1;
   if (run.livesLost === boss.lostAtSpawn) { run.bossClean += 1; } // за весь бой не потеряно ни полсердца
   if (botFinishing) { run.bossByBot += 1; }
-  lives = Math.min(MAX_LIVES, lives + ALFA_HEAL);
+  lives = Math.min(MAX_LIVES, lives + REFACTOR_HEAL);
   bossesDefeated += 1;
   boss = null;
   nextBossScore = score + BOSS_EVERY_SCORE;
@@ -993,7 +991,7 @@ function handleClick(px, py) {
     addPopup(target.x, target.y, `-${DECOY_PENALTY}`, '#ff5470');
     burst(target.x, target.y, '#ff5470', 8);
     sfx.decoy();
-  } else if (target.behavior === 'alfa') {
+  } else if (target.behavior === 'refactor') {
     bugs = bugs.filter((x) => x.id !== target.id);
     eatEverything();
   } else if (target.behavior === 'shield') {
@@ -1227,8 +1225,8 @@ function drawBugs() {
     if (b.behavior === 'golden') {
       ctx.shadowColor = '#ffd166';
       ctx.shadowBlur = 18;
-    } else if (b.behavior === 'alfa') {
-      ctx.shadowColor = '#ef3124';
+    } else if (b.behavior === 'refactor') {
+      ctx.shadowColor = '#5be3a5';
       ctx.shadowBlur = 20;
     } else if (b.behavior === 'dasher' && b.y > H * DASH_FROM) {
       ctx.shadowColor = '#ff5470';

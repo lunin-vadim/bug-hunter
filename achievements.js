@@ -18,7 +18,7 @@ const ACHIEVEMENTS = [
   { code: 'wave_10', icon: '🌋', name: 'Десятая волна', desc: 'Доберитесь до 10-й волны', progress: (t) => [t.bestWave, 10] },
   { code: 'golden_10', icon: '🐝', name: 'Золотая лихорадка', desc: 'Поймайте 10 золотых багов', progress: (t) => [t.golden, 10] },
   { code: 'bomb_master', icon: '💣', name: 'Сапёр', desc: 'Одним Hotfix устраните 8 багов', progress: (t) => [t.maxBombKills, 8] },
-  { code: 'croc_save', icon: '🅰️', name: 'Альфа-Бонус', desc: 'Поймайте Альфа-Бонус на последней жизни', progress: (t) => [t.crocSaves, 1] },
+  { code: 'croc_save', icon: '🧹', name: 'Рефакторинг', desc: 'Поймайте Рефакторинг на последней жизни', progress: (t) => [t.crocSaves, 1] },
   { code: 'flawless', icon: '🛡️', name: 'Безупречный', desc: 'Дойдите до 3-й волны, не потеряв ни одной жизни', progress: (t) => [t.flawless, 1] },
   { code: 'marathon', icon: '⏱️', name: 'Марафонец', desc: 'Продержитесь в одной партии 5 минут', progress: (t) => [Math.floor(t.longestGameMs / 1000), 300] },
   { code: 'games_10', icon: '🎮', name: 'Постоянный игрок', desc: 'Сыграйте 10 партий', progress: (t) => [t.gamesPlayed, 10] },
@@ -73,7 +73,7 @@ const ACHIEVEMENT_CODES = new Set(ACHIEVEMENTS.map((a) => a.code));
 
 /** Границы правдоподобия расширенной статистики партии. Это не защита от целенаправленной накрутки. */
 const WAVE_MS = 30000;
-// `croc` и `crocAtOneLife` — историческое имя Альфа-Бонуса в API и сохранённой статистике; не переименовываем без миграции
+// `croc` и `crocAtOneLife` — историческое имя бонуса «Рефакторинг» в API и сохранённой статистике; не переименовываем без миграции
 const BONUS_KEYS = ['golden', 'bomb', 'freeze', 'croc'];
 const BOSS_MIN_MS = 30000;
 const AUTOTEST_MIN_MS = 15000;
@@ -107,7 +107,7 @@ function parseGameExtra(body, { kills, durationMs }) {
   if (wave < 1 || wave > 1 + Math.floor(durationMs / WAVE_MS)) { return { error: 'Недостижимая волна' }; }
   if (maxBombKills > kills) { return { error: 'Некорректная статистика бомбы' }; }
   if (livesLost > 1000) { return { error: 'Некорректное число потерянных жизней' }; }
-  if (crocAtOneLife && bonuses.croc < 1) { return { error: 'Некорректная статистика Альфа-Бонуса' }; }
+  if (crocAtOneLife && bonuses.croc < 1) { return { error: 'Некорректная статистика бонуса «Рефакторинг»' }; }
   // босс: победа считается убийством, нового босса не раньше чем через ~30 с; победы «чистые» и «от бота» — подмножества побед
   if (bossKills > kills || bossKills > Math.floor(durationMs / BOSS_MIN_MS)) { return { error: 'Некорректная статистика боссов' }; }
   if (bossClean > bossKills || bossByBot > bossKills) { return { error: 'Некорректная статистика боссов' }; }

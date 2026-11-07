@@ -115,7 +115,7 @@ test('parseGameExtra: отклоняет недостижимые значени
   assert.ok(ach.parseGameExtra({ bonuses: { golden: 999 } }, ctx).error, 'слишком много бонусов');
   assert.ok(ach.parseGameExtra({ bestCombo: -1 }, ctx).error, 'отрицательное');
   assert.ok(ach.parseGameExtra({ bestCombo: 1.5 }, ctx).error, 'дробное');
-  assert.ok(ach.parseGameExtra({ crocAtOneLife: true }, ctx).error, 'Альфа-Бонус на последней жизни без самого бонуса');
+  assert.ok(ach.parseGameExtra({ crocAtOneLife: true }, ctx).error, 'Рефакторинг на последней жизни без самого бонуса');
 });
 
 /* ---------- Ранги: значки, прогресс, награды ---------- */
