@@ -416,6 +416,9 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
 .perk-icon { display: grid; place-items: center; width: 64px; height: 64px; margin-bottom: 4px; font-size: 32px; background: rgba(184, 240, 74, .1); border: 1px solid rgba(184, 240, 74, .3); border-radius: 18px; }
 .perk-key { position: absolute; top: 10px; left: 12px; display: grid; place-items: center; width: 22px; height: 22px; font-size: 12px; font-weight: 700; color: var(--muted); background: rgba(255, 255, 255, .06); border: 1px solid var(--line); border-radius: 7px; }
 .perk-lvl { margin-top: auto; padding-top: 6px; font-size: 11px; font-style: normal; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); }
+.perk-card.risky .perk-icon { background: rgba(255, 159, 67, .12); border-color: rgba(255, 159, 67, .45); }
+.perk-card.risky .perk-lvl { color: #ff9f43; }
+.perk-card.risky:hover, .perk-card.risky:focus-visible { border-color: #ff9f43; box-shadow: 0 12px 32px -8px rgba(255, 159, 67, .35); }
 .perk-hint { margin: 16px 0 0; font-size: 12px; color: var(--muted); }
 .perk-strip { position: fixed; left: 12px; bottom: 50px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; max-width: 60vw; pointer-events: none; }
 .perk-chip { position: relative; display: grid; place-items: center; width: 34px; height: 34px; font-size: 17px; background: rgba(18, 21, 28, .78); border: 1px solid rgba(184, 240, 74, .35); border-radius: 10px; }

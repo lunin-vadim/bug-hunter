@@ -43,7 +43,10 @@ const PERKS = [
   { id: 'slow', icon: '🧊', name: 'Охлаждение', max: 3, desc: 'Все баги медленнее на 10%. Плюс заморозка на 4 с сразу' },
   { id: 'azart', icon: '🔥', name: 'Азарт+', max: 2, desc: 'Множитель серии включается раньше: на 2 попадания' },
   { id: 'sapper', icon: '💣', name: 'Сапёрка', max: 3, desc: 'Hotfix с радиусом +40% и бомбы выпадают чаще. Одна сразу на поле' },
-  { id: 'points', icon: '🧮', name: 'Бонусные очки', max: 3, desc: '+1 очко за каждого устранённого бага' },
+  { id: 'points', icon: '🧮', name: 'Бонусные очки', max: 3, desc: '+15% очков за каждого устранённого бага' },
+  // перки с ценой: сильные, но с минусом
+  { id: 'debt', icon: '💸', name: 'Технический долг', max: 1, risky: true, desc: '+40% очков навсегда, но баги на 15% быстрее' },
+  { id: 'rollback', icon: '⏪', name: 'Откат', consumable: true, risky: true, desc: 'Убирает всех багов на поле, но стоит сердце', when: () => lives > 2 },
 ];
 const THREATS = new Set(['normal', 'splitter', 'golden', 'dasher']); // баги, за пролёт которых отнимается жизнь
 const DASH_FROM = 0.3;             // с какой доли высоты паук делает рывок
@@ -558,7 +561,7 @@ function pickKind() {
 
 function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
   const inWave = Math.max(0, Math.min(1, (elapsed - (nextWaveAt - WAVE_EVERY_MS)) / WAVE_EVERY_MS));
-  const speedBoost = Math.min(SPEED_CAP, 1 + (wave - 1) * SPEED_STEP_PER_WAVE + inWave * SPEED_STEP_IN_WAVE) * 0.9 ** perkLv('slow') * (dayMod() === 'fast' ? 1.2 : 1);
+  const speedBoost = Math.min(SPEED_CAP, 1 + (wave - 1) * SPEED_STEP_PER_WAVE + inWave * SPEED_STEP_IN_WAVE) * 0.9 ** perkLv('slow') * (perkLv('debt') ? 1.15 : 1) * (dayMod() === 'fast' ? 1.2 : 1);
   if (kind.behavior === 'refactor') { lastRefactorAt = elapsed; }
   if (kind.behavior === 'autotest') { lastAutotestAt = elapsed; sfx.rareSpawn(); } // редкий гость: даём о себе знать
   bugs.push({
@@ -708,6 +711,7 @@ function loseLife(x = W / 2) {
 const perkLv = (id) => perks[id] || 0;
 const comboStep = () => Math.max(4, COMBO_MULT_STEP - 2 * perkLv('azart') - (dayMod() === 'azart' ? 4 : 0));
 const hitMul = () => 1 + 0.35 * perkLv('sniper');
+const scoreMul = () => (1 + 0.15 * perkLv('points')) * (perkLv('debt') ? 1.4 : 1);
 
 function comboMult() {
   return Math.min(COMBO_MULT_MAX, 1 + Math.floor(combo / comboStep()));
@@ -733,7 +737,7 @@ function killBug(b, massKill = false) {
   kills += 1;
   const bonus = massKill ? 0 : comboBonus(combo);
   const mult = massKill ? 1 : comboMult();
-  const gain = (b.points + bonus) * mult + perkLv('points'); // бонус перка прибавляется после множителя
+  const gain = Math.round((b.points + bonus) * mult * scoreMul()); // перки на очки множат после «Азарта»
   score += gain;
   if (gain > 0) { addPopup(b.x, b.y - b.size * 0.5, `+${gain}`, mult > 1 ? '#ffd166' : bonus > 0 ? '#ffd166' : BRAND); }
 
@@ -1991,7 +1995,8 @@ function openPerks() {
     desc.textContent = p.desc;
     const lvl = document.createElement('em');
     lvl.className = 'perk-lvl';
-    lvl.textContent = p.consumable ? 'Разово' : `Ур. ${perkLv(p.id) + 1} из ${p.max}`;
+    lvl.textContent = (p.risky ? 'С подвохом · ' : '') + (p.consumable ? 'Разово' : `Ур. ${perkLv(p.id) + 1} из ${p.max}`);
+    if (p.risky) { card.classList.add('risky'); }
     card.append(key, icon, name, desc, lvl);
     card.addEventListener('click', () => { inGesture = true; try { choosePerk(p); } finally { inGesture = false; } });
     box.append(card);
@@ -2014,6 +2019,7 @@ function choosePerk(p) {
   perkChoosing = true;
   if (p.id === 'backup') { lives = Math.min(MAX_LIVES, lives + 2); }
   else if (p.id === 'firewall') { addShield(SHIELD_CHARGES); }
+  else if (p.id === 'rollback') { /* срабатывает в applyPerkNow, когда поле снова видно */ }
   else { perks[p.id] = perkLv(p.id) + 1; }
   sfx.fever();
   // сначала показываем, что выбрано: карточка подсвечивается, остальные гаснут
@@ -2034,6 +2040,13 @@ function applyPerkNow(p) {
   else if (p.id === 'sapper') { dropBonus('bomb', W * 0.65); }
   else if (p.id === 'slow') { slowLeft = Math.max(slowLeft, SLOW_MS); }
   else if (p.id === 'sniper') { sniperPulseAt = performance.now(); }
+  else if (p.id === 'rollback') {
+    bugs.filter((b) => THREATS.has(b.behavior)).forEach((b) => killBug(b, true));
+    lives -= 2; // ровно сердце; перк предлагается только при запасе больше сердца
+    run.livesLost += 2;
+    flash = Math.max(flash, 0.3);
+    sfx.bomb();
+  }
 }
 
 function finishPerk(p) {
