@@ -48,11 +48,24 @@ const PERKS = [
   { id: 'debt', icon: '💸', name: 'Технический долг', max: 1, risky: true, desc: '+40% очков навсегда, но баги на 15% быстрее' },
   { id: 'rollback', icon: '⏪', name: 'Откат', consumable: true, risky: true, desc: 'Убирает всех багов на поле, но стоит сердце', when: () => lives > 2 },
 ];
-const THREATS = new Set(['normal', 'splitter', 'golden', 'dasher']); // баги, за пролёт которых отнимается жизнь
+const THREATS = new Set(['normal', 'splitter', 'golden', 'dasher', 'flaky', 'regression', 'leak', 'race', 'heisen']); // баги, за пролёт которых отнимается жизнь
 const DASH_FROM = 0.3;             // с какой доли высоты паук делает рывок
 const DASH_MUL = 2.6;
 // что нового приносит волна (баннер при её начале)
-const WAVE_NEWS = { 2: 'новые жуки и бонусы', 3: 'делятся и приманки', 4: 'комары-зигзаг', 6: 'пауки: рывок', 8: 'скорпионы: броня' };
+const WAVE_NEWS = {
+  2: 'новые жуки и бонусы', 3: 'делятся и приманки', 4: 'комары-зигзаг', 5: 'flaky-сверчки прыгают', 6: 'пауки: рывок',
+  7: 'регрессия возвращается', 8: 'скорпионы: броня', 9: 'утечки памяти растут', 10: 'race condition и элита', 12: 'гейзенбаги',
+};
+// новые жуки поздних волн
+const FLAKY_JUMP_MS = [1100, 1900];  // 🦗 как часто прыгает вбок
+const REGRESSION_RISE = 0.35;        // 🐜 после смерти один раз возвращается выше на эту долю высоты
+const LEAK_GROW_MS = 1800;           // 🦠 раз в столько растёт: +1 хп, крупнее и медленнее
+const LEAK_MAX_HP = 4;
+const RACE_WINDOW_MS = 1200;         // 🪰 второго из пары надо убить за это время, иначе первый воскресает
+const RACE_BONUS = 6;
+const HEISEN_RADIUS = 150;           // 👻 у курсора становится почти невидимым
+const ELITE_FROM_WAVE = 10;          // элитные версии обычных жуков: +1 хп, ×2 очков, оранжевое свечение
+const HINTS_KEY = 'bug-hunter-fullscreen:seen';
 const SLOW_MS = 4000;
 const SLOW_FACTOR = 0.4;
 const BOMB_RADIUS = 150;
@@ -121,7 +134,35 @@ const BUG_KINDS = [
   { emoji: '🦟', points: 3, hp: 1, size: 22, minSpeed: 85, maxSpeed: 120, weight: 2, behavior: 'normal', ampMul: 3, minWave: 4, glow: 'rgba(255, 255, 255, 0.55)' },
   { emoji: '🕷️', points: 5, hp: 1, size: 30, minSpeed: 30, maxSpeed: 45, weight: 1.6, behavior: 'dasher', minWave: 6, glow: 'rgba(255, 255, 255, 0.6)' },
   { emoji: '🦂', points: 8, hp: 4, size: 44, minSpeed: 20, maxSpeed: 30, weight: 1.2, behavior: 'normal', minWave: 8 },
+  { emoji: '🦗', points: 3, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 1.6, behavior: 'flaky', minWave: 5, ampMul: 0.3 },
+  { emoji: '🐜', points: 3, hp: 1, size: 26, minSpeed: 45, maxSpeed: 65, weight: 1.5, behavior: 'regression', minWave: 7, glow: 'rgba(255, 255, 255, 0.5)' },
+  { emoji: '🦠', points: 2, hp: 1, size: 24, minSpeed: 34, maxSpeed: 46, weight: 1.2, behavior: 'leak', minWave: 9, ampMul: 0.4 },
+  { emoji: '🪰', points: 4, hp: 1, size: 26, minSpeed: 50, maxSpeed: 70, weight: 0.9, behavior: 'race', minWave: 10, glow: 'rgba(255, 255, 255, 0.55)' },
+  { emoji: '👻', points: 5, hp: 1, size: 32, minSpeed: 38, maxSpeed: 55, weight: 1.1, behavior: 'heisen', minWave: 12 },
 ];
+
+// подсказка при первой встрече с объектом (запоминается в браузере)
+const HINTS = {
+  '🪲': ['Жук-броненосец', 'Два попадания'],
+  '🪳': ['Таракан', 'На смерти делится на двух мелких'],
+  '🐝': ['Золотой баг', 'Бонус очков и пауза спавна'],
+  '🐌': ['Приманка', 'Не трогай: клик снимает очки и рвёт серию'],
+  '🧹': ['Рефакторинг', 'Чистит нижнюю половину поля и даёт сердце'],
+  '🧊': ['Code freeze', 'Замедляет всех багов на 4 с'],
+  '💣': ['Hotfix', 'Взрыв убирает багов вокруг'],
+  '🤖': ['Автотест', 'Редкий бот: 6 с сам бьёт ближних багов'],
+  '🦟': ['Комар', 'Летит широким зигзагом'],
+  '🕷️': ['Паук', 'Ниже трети экрана делает рывок'],
+  '🦂': ['Скорпион', 'Броня: четыре попадания'],
+  '🦗': ['Flaky-сверчок', 'Время от времени прыгает вбок'],
+  '🐜': ['Регрессия', 'После смерти один раз возвращается выше'],
+  '🦠': ['Утечка памяти', 'Растёт: чем дольше живёт, тем крепче'],
+  '🪰': ['Race condition', 'Пара: убей обоих почти одновременно, иначе первый воскреснет'],
+  '👻': ['Гейзенбаг', 'Исчезает, когда на него смотришь: целься чуть издалека'],
+  '🛡️': ['Щит', 'Гасит четыре прорыва'],
+  '🔧': ['Патч', 'Чинит полсердца'],
+  '👾': ['Баг-босс', 'Закликай до прода. С 60% хп телепортируется, с 25% звереет'],
+};
 
 // «укрепления»: падают только пока идёт бой с боссом
 const BOSS_DROPS = [
@@ -583,6 +624,82 @@ function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
   });
   const b = bugs[bugs.length - 1];
   b.baseX = b.x;
+  b.maxHp = b.hp;
+  if (kind.behavior === 'flaky') { b.jumpIn = FLAKY_JUMP_MS[0] + Math.random() * (FLAKY_JUMP_MS[1] - FLAKY_JUMP_MS[0]); }
+  if (kind.behavior === 'leak') { b.growIn = LEAK_GROW_MS; }
+  showHint(kind.emoji);
+  return b;
+}
+
+/** 🪰 пара в разных половинах поля, связанная общим pairId */
+function spawnRacePair(kind) {
+  if (bugs.length > MAX_BUGS - 2) { return; }
+  const pairId = nextId;
+  const half = W / 2;
+  const a = spawnBug(kind, kind.size * S + rng.bug() * (half - kind.size * S * 2));
+  const b = spawnBug(kind, half + kind.size * S + rng.bug() * (half - kind.size * S * 2));
+  a.pairId = pairId; b.pairId = pairId;
+  b.speed = a.speed; // летят вровень, чтобы было честно
+}
+
+/** Элита поздних волн: крепче, ценнее, светится */
+function maybeElite(b) {
+  if (!b || wave < ELITE_FROM_WAVE || !['normal', 'splitter', 'dasher'].includes(b.behavior)) { return; }
+  if (rng.bug() >= Math.min(0.35, 0.15 + 0.02 * (wave - ELITE_FROM_WAVE))) { return; }
+  b.elite = true;
+  b.hp += 1; b.maxHp += 1;
+  b.points *= 2;
+  b.size *= 1.15;
+}
+
+/** Подсказка о новом объекте — один раз за всё время в этом браузере */
+let seenHints = new Set();
+try { seenHints = new Set(JSON.parse(localStorage.getItem(HINTS_KEY) || '[]')); } catch { /* ignore */ }
+let hintQueue = [], hintAt = -Infinity;
+const HINT_GAP_MS = 2500; // не больше одной подсказки за раз, остальные ждут очереди
+function showHint(emoji) {
+  if (!HINTS[emoji] || seenHints.has(emoji) || phase !== 'playing') { return; }
+  seenHints.add(emoji);
+  try { localStorage.setItem(HINTS_KEY, JSON.stringify([...seenHints])); } catch { /* ignore */ }
+  hintQueue.push(emoji);
+  flushHints();
+}
+function flushHints() {
+  if (!hintQueue.length || fxClock - hintAt < HINT_GAP_MS) { return; }
+  const emoji = hintQueue.shift();
+  hintAt = fxClock;
+  toast(emoji, ...HINTS[emoji]);
+}
+
+/** Поведение новых жуков: прыжки, рост, воскрешение пары */
+function updateSpecialBug(b, ms) {
+  if (b.behavior === 'flaky') {
+    b.jumpIn -= ms;
+    if (b.jumpIn <= 0) {
+      b.jumpIn = FLAKY_JUMP_MS[0] + Math.random() * (FLAKY_JUMP_MS[1] - FLAKY_JUMP_MS[0]);
+      const dir = b.baseX < W / 2 ? 1 : -1;
+      burst(b.x, b.y, '#9aa4b5', 5);
+      b.baseX = Math.max(b.size, Math.min(W - b.size, b.baseX + dir * (80 + Math.random() * 90) * S));
+    }
+  } else if (b.behavior === 'leak' && b.hp < LEAK_MAX_HP) {
+    b.growIn -= ms;
+    if (b.growIn <= 0) {
+      b.growIn = LEAK_GROW_MS;
+      b.hp += 1; b.maxHp += 1; b.points += 2;
+      b.size *= 1.22;
+      b.speed *= 0.88;
+    }
+  } else if (b.behavior === 'race' && b.racePending && elapsed > b.racePending.until) {
+    const { x, y } = b.racePending; // не успел: пропущенный из пары воскресает
+    b.racePending = null;
+    if (bugs.length < MAX_BUGS) {
+      const twin = spawnBug(b.kind, x, y);
+      twin.pairId = b.pairId;
+      twin.speed = b.speed;
+      burst(x, y, '#ff5470', 8);
+      addPopup(x, y - b.size, 'race!', '#ff5470');
+    }
+  }
 }
 
 /** Интервал спавна сжимается каждую волну и не замирает: 1700 мс → 420 мс, плюс буст при смене волны */
@@ -617,6 +734,7 @@ function resetGame() {
   ev = null; nextEventAt = dayMod() === 'storm' ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null;
   autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0; autotestSpan = AUTOTEST_MS; lastAutotestAt = -Infinity;
   perks = {}; perkPending = false; closePerks(); renderPerkStrip();
+  hintQueue = []; hintAt = -Infinity;
   run = newRunStats();
   banner = null; shake = 0; flash = 0;
 }
@@ -741,6 +859,20 @@ function killBug(b, massKill = false) {
   score += gain;
   if (gain > 0) { addPopup(b.x, b.y - b.size * 0.5, `+${gain}`, mult > 1 ? '#ffd166' : bonus > 0 ? '#ffd166' : BRAND); }
 
+  if (b.behavior === 'regression' && !b.revived) { // регрессия: однажды возвращается выше
+    const r = spawnBug(b.kind, b.x, Math.max(-b.size, b.y - H * REGRESSION_RISE));
+    r.revived = true;
+    addPopup(b.x, b.y + b.size * 0.6, 'регрессия!', '#ff9f43');
+  }
+  if (b.behavior === 'race') {
+    const partner = bugs.find((x) => x.pairId === b.pairId);
+    if (b.racePending) { // второй из пары успел: синхронно
+      score += RACE_BONUS;
+      addPopup(b.x, b.y - b.size, `синхронно! +${RACE_BONUS}`, '#ffd166');
+    } else if (partner) {
+      partner.racePending = { x: b.x, y: b.y, until: elapsed + RACE_WINDOW_MS };
+    }
+  }
   if (b.canSplit && !massKill) {
     for (const dx of [-1, 1]) {
       const kid = { ...BUG_KINDS[0], emoji: '🐛', points: 1, hp: 1, size: 20, behavior: 'normal' };
@@ -903,6 +1035,7 @@ function spawnBoss() {
     minionTimer: BOSS_MINION_MS * 0.5, dropTimer: BOSS_DROP_MS * 0.6, lostAtSpawn: run.livesLost,
   };
   showBanner(`Волна ${wave}: Завали Босса!`, '#ff5470');
+  showHint(BOSS_EMOJI);
   sfx.bossIn();
   shake = Math.max(shake, 0.25);
 }
@@ -1148,6 +1281,7 @@ function update(dt) {
 
   updateEvents(ms);
   updateAutotest(ms);
+  flushHints();
 
   if (freezeLeft > 0) {
     freezeLeft = Math.max(0, freezeLeft - ms);
@@ -1160,7 +1294,10 @@ function update(dt) {
       spawnTimer -= iv;
       if (ev && ev.type === 'rain') { spawnBug(BUG_KINDS[rng.spawn() < 0.7 ? 0 : 1]); }
       else if (ev && ev.type === 'gold') { spawnBug(BUG_KINDS.find((k) => k.behavior === 'golden')); }
-      else { spawnBug(pickKind()); }
+      else {
+        const k = pickKind();
+        if (k.behavior === 'race') { spawnRacePair(k); } else { maybeElite(spawnBug(k)); }
+      }
     }
     if (bugs.length >= MAX_BUGS) { spawnTimer = 0; }
   }
@@ -1169,6 +1306,7 @@ function update(dt) {
   for (const b of bugs.slice()) {
     const dash = b.behavior === 'dasher' && b.y > H * DASH_FROM ? DASH_MUL : 1;
     b.y += b.speed * dt * pace * dash;
+    updateSpecialBug(b, ms * pace);
     b.phase += dt * 2.2 * pace;
     b.x = b.baseX + Math.sin(b.phase) * b.amp;
     b.x = Math.max(b.size * 0.5, Math.min(W - b.size * 0.5, b.x));
@@ -1308,7 +1446,30 @@ function drawBossBar() {
   for (const p of BOSS_PHASES.slice(1)) { ctx.fillRect(x + bw * p.at - 1, y - 2, 2, 14); }
 }
 
+function drawRaceLinks() {
+  ctx.save();
+  ctx.setLineDash([4 * S, 6 * S]);
+  ctx.lineWidth = 1.5 * S;
+  for (const b of bugs) {
+    if (b.behavior !== 'race') { continue; }
+    const p = bugs.find((x) => x !== b && x.pairId === b.pairId);
+    if (p && b.id < p.id) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+    }
+    if (b.racePending) { // таймер воскрешения пары
+      const t = Math.max(0, (b.racePending.until - elapsed) / RACE_WINDOW_MS);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = '#ff5470';
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.size * 0.8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t); ctx.stroke();
+      ctx.setLineDash([4 * S, 6 * S]);
+    }
+  }
+  ctx.restore();
+}
+
 function drawBugs() {
+  drawRaceLinks();
   for (const b of bugs) {
     const img = b.image ? getImage(b.image) : null;
     if (b.image && !img) { continue; }
@@ -1317,7 +1478,14 @@ function drawBugs() {
     ctx.save();
     ctx.translate(b.x, b.y);
     ctx.rotate(wob);
-    if (b.behavior === 'golden') {
+    if (b.behavior === 'heisen') { // гейзенбаг: чем ближе курсор, тем прозрачнее
+      const d = ptr.inside ? Math.hypot(ptr.x - b.x, ptr.y - b.y) : Infinity;
+      ctx.globalAlpha = d < HEISEN_RADIUS * S ? 0.08 + 0.5 * (d / (HEISEN_RADIUS * S)) ** 2 : 0.85;
+    }
+    if (b.elite) {
+      ctx.shadowColor = '#ff9f43';
+      ctx.shadowBlur = 20;
+    } else if (b.behavior === 'golden') {
       ctx.shadowColor = '#ffd166';
       ctx.shadowBlur = 18;
     } else if (b.behavior === 'refactor') {
@@ -1356,9 +1524,9 @@ function drawBugs() {
       ctx.stroke();
     }
     ctx.restore();
-    if (b.kind.hp > 1 && b.hp < b.kind.hp) {
-      ctx.fillStyle = '#ff5470';
-      ctx.fillRect(b.x - b.size * 0.4, b.y - b.size * 0.8, b.size * 0.8 * (b.hp / b.kind.hp), 3);
+    if (b.maxHp > 1 && (b.hp < b.maxHp || b.behavior === 'leak')) {
+      ctx.fillStyle = b.behavior === 'leak' ? '#c792ff' : '#ff5470';
+      ctx.fillRect(b.x - b.size * 0.4, b.y - b.size * 0.8, b.size * 0.8 * (b.hp / b.maxHp), 3);
     }
   }
 }
