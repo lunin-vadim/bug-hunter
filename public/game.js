@@ -89,6 +89,15 @@ const POPUP_MS = 700;
 const MAX_BUGS = 40;
 // «Завали Босса»: большой баг, который надо закликать, пока он ползёт к продакшену
 const BOSS_EMOJI = '👾';
+// типы боссов идут по кругу: классический, «Легаси-монолит» (броня из блоков), «Дедлайн» (таймер вместо спуска)
+const BOSS_TYPES = [
+  { id: 'classic', emoji: '👾', name: 'БАГ-БОСС', hpMul: 1 },
+  { id: 'monolith', emoji: '🗿', name: 'ЛЕГАСИ-МОНОЛИТ', hpMul: 0.8, banner: 'Легаси-монолит: сначала разбей блоки!' },
+  { id: 'deadline', emoji: '⏰', name: 'ДЕДЛАЙН', hpMul: 0.8, banner: 'Дедлайн: успей до конца таймера!' },
+];
+const MONOLITH_BLOCKS = 4;       // сколько блоков брони вокруг монолита
+const MONOLITH_BLOCK_HP = 3;
+const DEADLINE_S = 26;           // сколько секунд даёт «Дедлайн» (каждый следующий на 2 с меньше, не меньше 16)
 const BOSS_FIRST_WAVE = 5;       // на какой волне появляется первый босс
 const BOSS_EVERY_WAVES = 4;      // и дальше каждые столько волн (5, 9, 13…) — не зависит от набранных очков
 // фазы босса по остатку здоровья: «Хаос» — телепорты с предупреждением, «Ярость» — быстрее спускается и чаще зовёт миньонов
@@ -162,6 +171,8 @@ const HINTS = {
   '🛡️': ['Щит', 'Гасит четыре прорыва'],
   '🔧': ['Патч', 'Чинит полсердца'],
   '👾': ['Баг-босс', 'Закликай до прода. С 60% хп телепортируется, с 25% звереет'],
+  '🗿': ['Легаси-монолит', 'Сначала разбей вращающиеся блоки 🧱 — пока они целы, монолит неуязвим'],
+  '⏰': ['Дедлайн', 'Не спускается, но тикает таймер: не успел — минус два сердца'],
 };
 
 // «укрепления»: падают только пока идёт бой с боссом
@@ -210,7 +221,7 @@ const el = {
 
 /* ---------- Состояние ---------- */
 let W = 0, H = 0, DPR = 1, S = 1; // S — масштаб размеров/скоростей относительно окна
-let boss = null, bossesDefeated = 0, shield = 0;
+let boss = null, bossesDefeated = 0, bossesMet = 0, shield = 0;
 let ev = null, nextEventAt = EVENT_FIRST_AT_MS, lastEvent = null;
 let autotestLeft = 0, autotestTimer = 0, autotestShots = [], autotestTick = 0, autotestSpan = AUTOTEST_MS, lastAutotestAt = -Infinity;
 let botFinishing = false; // true, пока выстрел бота наносит урон боссу: так считаем «добил автотестом»
@@ -730,7 +741,7 @@ function resetGame() {
   score = 0; combo = 0; bestCombo = 0; kills = 0; lives = dayMod() === 'hearts' ? 6 : START_LIVES;
   elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastRefactorAt = -Infinity;
   slowLeft = 0; countdownLeft = 0; sniperPulseAt = 0;
-  boss = null; bossesDefeated = 0; shield = 0;
+  boss = null; bossesDefeated = 0; bossesMet = 0; shield = 0;
   ev = null; nextEventAt = dayMod() === 'storm' ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null;
   autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0; autotestSpan = AUTOTEST_MS; lastAutotestAt = -Infinity;
   perks = {}; perkPending = false; closePerks(); renderPerkStrip();
@@ -1028,16 +1039,55 @@ function addShield(n) {
 }
 
 function spawnBoss() {
+  const type = BOSS_TYPES[bossesMet % BOSS_TYPES.length];
+  bossesMet += 1;
   const size = Math.max(BOSS_SIZE * S, 96); // на телефоне масштаб S мал — босс не должен стать крошечным
-  const maxHp = BOSS_HP_BASE + BOSS_HP_STEP * bossesDefeated;
+  const maxHp = Math.round((BOSS_HP_BASE + BOSS_HP_STEP * bossesDefeated) * type.hpMul);
   boss = {
+    type: type.id, emoji: type.emoji, name: type.name,
     x: W / 2, y: -size, size, hp: maxHp, maxHp, phase: 0, flash: 0, stage: 0, warpTimer: BOSS_WARP_MS, warpTo: null,
     minionTimer: BOSS_MINION_MS * 0.5, dropTimer: BOSS_DROP_MS * 0.6, lostAtSpawn: run.livesLost,
+    blocks: type.id === 'monolith' ? Array.from({ length: MONOLITH_BLOCKS }, () => ({ hp: MONOLITH_BLOCK_HP, flash: 0 })) : [],
+    orbit: 0,
+    timeLeft: type.id === 'deadline' ? Math.max(16, DEADLINE_S - 2 * bossesDefeated) : 0,
   };
-  showBanner(`Волна ${wave}: Завали Босса!`, '#ff5470');
-  showHint(BOSS_EMOJI);
+  showBanner(type.banner ? `Волна ${wave}: ${type.banner}` : `Волна ${wave}: Завали Босса!`, '#ff5470');
+  showHint(type.emoji);
   sfx.bossIn();
   shake = Math.max(shake, 0.25);
+}
+
+/** Где сейчас i-й блок брони монолита */
+function blockPos(i) {
+  const a = boss.orbit + (i * Math.PI * 2) / MONOLITH_BLOCKS;
+  const r = boss.size * 0.78;
+  return { x: boss.x + Math.cos(a) * r, y: boss.y + Math.sin(a) * r * 0.75, size: boss.size * 0.32 };
+}
+
+function blockHit(px, py) {
+  if (!boss) { return -1; }
+  for (let i = 0; i < boss.blocks.length; i++) {
+    if (boss.blocks[i].hp <= 0) { continue; }
+    const p = blockPos(i);
+    const r = p.size * 0.7 + HIT_RADIUS_BONUS * S * hitMul();
+    if ((px - p.x) ** 2 + (py - p.y) ** 2 <= r * r) { return i; }
+  }
+  return -1;
+}
+
+const armored = () => !!boss && boss.blocks.some((b) => b.hp > 0);
+
+function damageBlock(i, n) {
+  const blk = boss.blocks[i];
+  const p = blockPos(i);
+  blk.hp -= n;
+  blk.flash = 0.15;
+  burst(p.x, p.y, '#c9a27a', 6);
+  if (blk.hp <= 0) {
+    burst(p.x, p.y, '#c9a27a', 18);
+    shake = Math.max(shake, 0.15);
+    if (!armored()) { showBanner('Броня снята: бей монолит!', '#ffd166'); }
+  }
 }
 
 function isBossWave(w) {
@@ -1057,6 +1107,15 @@ function bossHit(px, py) {
 
 function damageBoss(n) {
   if (!boss) { return; }
+  if (armored()) { // бомбы, рефакторинг и автотест сначала ломают броню монолита; лишний урон уходит в следующий блок
+    while (n > 0 && armored()) {
+      const i = boss.blocks.findIndex((b) => b.hp > 0);
+      const d = Math.min(n, boss.blocks[i].hp);
+      damageBlock(i, d);
+      n -= d;
+    }
+    return;
+  }
   boss.hp -= n;
   boss.flash = 0.15;
   burst(boss.x, boss.y, '#ff9f9f', 4 + n);
@@ -1074,6 +1133,8 @@ function enterBossStage(n) {
   shake = Math.max(shake, 0.4);
   flash = Math.max(flash, 0.25);
   sfx.bossPhase();
+  const broken = boss.blocks.find((b) => b.hp <= 0);
+  if (broken) { broken.hp = MONOLITH_BLOCK_HP; showBanner(`${def.banner} Блок брони вернулся`, def.color); }
   if (n === BOSS_PHASES.length - 1) { // «Ярость» начинается с залпа миньонов
     for (let i = 0; i < 3 && bugs.length < MAX_BUGS; i++) {
       spawnBug(BUG_KINDS[i], boss.x + (i - 1) * boss.size * 0.5, boss.y + boss.size * 0.4, false, 1.4);
@@ -1133,8 +1194,12 @@ function updateBoss(dt, pace) {
   boss.phase += dt * 0.9 * pace * (boss.stage >= 1 ? 1.35 : 1);
   if (boss.warpTo !== null) { boss.warpTo += dt * 0.9 * pace * 1.35; } // точка назначения едет вместе с качанием
   boss.x = bossXAt(boss.phase);
+  boss.orbit += dt * 1.1 * pace;
+  for (const blk of boss.blocks) { blk.flash = Math.max(0, blk.flash - dt); }
   if (boss.y < topY) {
     boss.y = Math.min(topY, boss.y + 170 * S * dt * pace); // выезжает сверху
+  } else if (boss.type === 'deadline') { // не спускается: вместо этого тикает таймер (code freeze его тоже тормозит)
+    boss.timeLeft -= dt * pace * (rage ? 1.5 : 1);
   } else {
     const descent = Math.max(25, BOSS_DESCENT_S - 3 * bossesDefeated);
     boss.y += ((line - topY) / descent) * dt * pace * (rage ? BOSS_RAGE_DESCENT : 1);
@@ -1150,13 +1215,15 @@ function updateBoss(dt, pace) {
     boss.minionTimer = Math.max(1100, BOSS_MINION_MS - 250 * bossesDefeated) * (rage ? BOSS_RAGE_MINIONS : 1);
     if (bugs.length < MAX_BUGS) { spawnBug(BUG_KINDS[Math.floor(rng.spawn() * 3)], boss.x, boss.y + boss.size * 0.4, false, 1.4); }
   }
-  if (boss.y + boss.size * 0.35 >= line) {
+  if (boss.y + boss.size * 0.35 >= line || (boss.type === 'deadline' && boss.timeLeft <= 0)) {
     const bx = boss.x;
+    const what = boss.type === 'deadline' ? 'Дедлайн сорван' : 'Босс прорвался';
+    if (boss.type === 'deadline') { burst(bx, boss.y, '#ff5470', 40); }
     addSplat(bx, line);
     boss = null;
-    if (shield >= BOSS_REACH_DAMAGE) { showBanner('Щит выдержал прорыв босса!', '#7fd8ff'); }
-    else if (shield > 0) { showBanner('Босс прорвался! Щит поглотил часть', '#ff5470'); }
-    else { showBanner('Босс прорвался! −2 сердца', '#ff5470'); }
+    if (shield >= BOSS_REACH_DAMAGE) { showBanner(`${what}, но щит выдержал!`, '#7fd8ff'); }
+    else if (shield > 0) { showBanner(`${what}! Щит поглотил часть`, '#ff5470'); }
+    else { showBanner(`${what}! −2 сердца`, '#ff5470'); }
     for (let i = 0; i < BOSS_REACH_DAMAGE; i++) {
       loseLife(bx);
       if (phase !== 'playing') { return false; }
@@ -1173,6 +1240,20 @@ function handleClick(px, py) {
     const b = bugs[i];
     const r = b.size * 0.6 + HIT_RADIUS_BONUS * S * hitMul();
     if ((px - b.x) ** 2 + (py - b.y) ** 2 <= r * r) { target = b; break; }
+  }
+  const blk = target ? -1 : blockHit(px, py);
+  if (blk >= 0) {
+    score += 1;
+    addPopup(px, py - 10 * S, '+1', '#c9a27a');
+    sfx.crack();
+    damageBlock(blk, 1);
+    updateHud();
+    return;
+  }
+  if (!target && bossHit(px, py) && armored()) { // по телу монолита в броне — не промах, но и не урон
+    addPopup(px, py - 10 * S, 'броня', '#c9a27a');
+    sfx.miss();
+    return;
   }
   if (!target && bossHit(px, py)) {
     // комбо босс не трогает: серия считается по убитым багам
@@ -1389,7 +1470,7 @@ function drawProdLine() {
 
 function drawBoss() {
   if (!boss) { return; }
-  const sp = getSprite(BOSS_EMOJI, boss.size);
+  const sp = getSprite(boss.emoji, boss.size);
   const w = sp.width / DPR;
   const rage = boss.stage === BOSS_PHASES.length - 1;
   const pulse = 1 + (rage ? 0.07 : 0.04) * Math.sin(performance.now() / (rage ? 90 : 180));
@@ -1415,6 +1496,29 @@ function drawBoss() {
   ctx.shadowBlur = boss.flash > 0 ? 40 : (rage ? 36 : 24);
   ctx.drawImage(sp, -w / 2, -w / 2, w, w);
   ctx.restore();
+  for (let i = 0; i < boss.blocks.length; i++) { // броня монолита
+    const blk = boss.blocks[i];
+    if (blk.hp <= 0) { continue; }
+    const p = blockPos(i);
+    const bs = getSprite('🧱', p.size);
+    const bw = bs.width / DPR;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.shadowColor = blk.flash > 0 ? '#ffffff' : '#c9a27a';
+    ctx.shadowBlur = blk.flash > 0 ? 24 : 10;
+    ctx.drawImage(bs, -bw / 2, -bw / 2, bw, bw);
+    ctx.restore();
+    ctx.fillStyle = '#c9a27a';
+    ctx.fillRect(p.x - p.size * 0.4, p.y - p.size * 0.75, p.size * 0.8 * (blk.hp / MONOLITH_BLOCK_HP), 3);
+  }
+  if (boss.type === 'deadline' && boss.y > 0) { // таймер прямо под циферблатом
+    const t = Math.max(0, boss.timeLeft);
+    ctx.font = `700 ${Math.round(18 * S + 6)}px ${FONT_DISPLAY}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = t < 6 ? '#ff5470' : '#ffd166';
+    ctx.fillText(`${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`, boss.x, boss.y + boss.size * 0.55);
+  }
 }
 
 function drawBossBar() {
@@ -1428,7 +1532,7 @@ function drawBossBar() {
   const x = narrow ? 12 : left + (right - left - bw) / 2;
   const y = narrow ? Math.max(72, hud.getBoundingClientRect().bottom + 24) : 28;
   const def = BOSS_PHASES[boss.stage];
-  const title = bossesDefeated ? `БАГ-БОСС · ${bossesDefeated + 1}` : 'БАГ-БОСС';
+  const title = bossesMet > 1 ? `${boss.name} · ${bossesMet}` : boss.name;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.font = `700 11px ${FONT_UI}`;
@@ -1437,7 +1541,8 @@ function drawBossBar() {
   ctx.fillText(def.name ? `${title} · ${def.name}` : title, x, y - 7);
   ctx.textAlign = 'right';
   ctx.letterSpacing = '0px';
-  ctx.fillText(`${Math.max(0, boss.hp)} / ${boss.maxHp}`, x + bw, y - 7);
+  const armor = boss.blocks.filter((b) => b.hp > 0).length;
+  ctx.fillText(armor ? `🧱 ×${armor} · ${Math.max(0, boss.hp)} / ${boss.maxHp}` : `${Math.max(0, boss.hp)} / ${boss.maxHp}`, x + bw, y - 7);
   ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
   ctx.fillRect(x, y, bw, 10);
   ctx.fillStyle = boss.flash > 0 ? '#ffffff' : (def.color || '#ff5470');
