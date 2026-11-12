@@ -281,6 +281,7 @@ function newRunStats() {
     livesLost: 0 /* в половинках сердца */, maxBombKills: 0, crocAtOneLife: false, bonuses: { golden: 0, bomb: 0, freeze: 0, croc: 0 },
     bossKills: 0, bossClean: 0, bossByBot: 0, autotestPicks: 0, autotestKills: 0, // для ачивок про босса и автотест
     waveScores: [], lastCause: null, // для итогов партии: счёт на конец каждой волны и кто последним прорвался
+    timeline: [], // счёт раз в секунду: из лучшей попытки дня получается «призрак»
   };
 }
 let lastTs = 0;
@@ -761,6 +762,7 @@ function startGame(m = mode) {
   mode = m === 'daily' && dailyInfo ? 'daily' : 'normal';
   if (mode === 'daily') { seedRng(dailyInfo.date); } else { rng = { spawn: Math.random, bug: Math.random, perk: Math.random }; }
   resetGame();
+  loadGhost();
   phase = 'playing';
   overlay.hidden = true;
   summaryBox.hidden = true;
@@ -1364,6 +1366,7 @@ function update(dt) {
   const ms = dt * 1000;
   elapsed += ms;
 
+  while (run.timeline.length * 1000 <= elapsed) { run.timeline.push(score); }
   if (elapsed >= nextWaveAt) {
     run.waveScores.push(score);
     wave += 1;
@@ -1796,6 +1799,7 @@ function render() {
   ctx.restore();
   drawSniperRing();
   drawBossBar();
+  drawGhost();
   drawEventBar();
   drawBanner();
   drawCountdown();
@@ -2069,7 +2073,37 @@ function dailyBestToday() {
   return Math.max(dailyInfo.me ? dailyInfo.me.score : 0, local);
 }
 function saveDailyBest(v) {
-  try { localStorage.setItem(dailyKey(), String(v)); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(dailyKey(), String(v));
+    localStorage.setItem(`${dailyKey()}:ghost`, JSON.stringify(run.timeline)); // «призрак» — ход лучшей попытки
+  } catch { /* ignore */ }
+}
+
+/** Счёт лучшей сегодняшней попытки по секундам (только в этом браузере) */
+let ghost = null;
+function loadGhost() {
+  ghost = null;
+  if (mode !== 'daily' || !dailyInfo) { return; }
+  try {
+    const g = JSON.parse(localStorage.getItem(`${dailyKey()}:ghost`) || 'null');
+    if (Array.isArray(g) && g.length) { ghost = g; }
+  } catch { /* ignore */ }
+}
+
+/** Опережение или отставание от призрака на этой же секунде */
+function drawGhost() {
+  if (!ghost || phase !== 'playing') { return; }
+  const sec = Math.floor(elapsed / 1000);
+  const past = sec >= ghost.length;
+  const delta = score - ghost[Math.min(sec, ghost.length - 1)];
+  const rect = hud.getBoundingClientRect();
+  ctx.font = `700 13px ${FONT_UI}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = delta >= 0 ? BRAND : '#ff9f9f';
+  const sign = delta > 0 ? '+' : delta < 0 ? '−' : '±';
+  const text = past ? `⏱️ Призрак дня закончил на ${ghost[ghost.length - 1]} · ${sign}${Math.abs(delta)}` : `⏱️ Призрак дня: ${sign}${Math.abs(delta)}`;
+  ctx.fillText(text, 16, Math.max(rect.bottom, 60) + (W < 600 && boss ? 64 : 10));
 }
 
 async function loadDaily() {
