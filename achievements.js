@@ -76,6 +76,11 @@ const WAVE_MS = 30000;
 // `croc` и `crocAtOneLife` — историческое имя бонуса «Рефакторинг» в API и сохранённой статистике; не переименовываем без миграции
 const BONUS_KEYS = ['golden', 'bomb', 'freeze', 'croc'];
 const BOSS_MIN_MS = 30000;
+// боссы приходят на волнах 5, 9, 13… (как в public/game.js); +1 — запас на клиент из кэша со старым правилом «по очкам»
+const BOSS_FIRST_WAVE = 5;
+const BOSS_EVERY_WAVES = 4;
+const BOSS_WAVE_SLACK = 1;
+const bossesByWave = (wave) => (wave >= BOSS_FIRST_WAVE ? Math.floor((wave - BOSS_FIRST_WAVE) / BOSS_EVERY_WAVES) + 1 : 0);
 const AUTOTEST_MIN_MS = 15000;
 
 function toInt(v) {
@@ -108,8 +113,10 @@ function parseGameExtra(body, { kills, durationMs }) {
   if (maxBombKills > kills) { return { error: 'Некорректная статистика бомбы' }; }
   if (livesLost > 1000) { return { error: 'Некорректное число потерянных жизней' }; }
   if (crocAtOneLife && bonuses.croc < 1) { return { error: 'Некорректная статистика бонуса «Рефакторинг»' }; }
-  // босс: победа считается убийством, нового босса не раньше чем через ~30 с; победы «чистые» и «от бота» — подмножества побед
-  if (bossKills > kills || bossKills > Math.floor(durationMs / BOSS_MIN_MS)) { return { error: 'Некорректная статистика боссов' }; }
+  // босс: победа считается убийством, боссов не больше, чем было волн с боссом; победы «чистые» и «от бота» — подмножества побед
+  if (bossKills > kills || bossKills > Math.floor(durationMs / BOSS_MIN_MS) || bossKills > bossesByWave(wave) + BOSS_WAVE_SLACK) {
+    return { error: 'Некорректная статистика боссов' };
+  }
   if (bossClean > bossKills || bossByBot > bossKills) { return { error: 'Некорректная статистика боссов' }; }
   // автотест: редкий бонус (перезарядка ≥ ~15 с); убитые им — часть общих убийств
   if (autotestPicks > Math.floor(durationMs / AUTOTEST_MIN_MS) + 1 || autotestKills > kills || (autotestKills > 0 && autotestPicks < 1)) {

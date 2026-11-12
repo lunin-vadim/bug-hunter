@@ -187,8 +187,8 @@ test('parseGameExtra: боссы и автотест — значения по �
 });
 
 test('parseGameExtra: правдоподобные боссы и автотесты принимаются', () => {
-  const ctx = { kills: 200, durationMs: 120000 };
-  const r = ach.parseGameExtra({ bossKills: 2, bossClean: 1, bossByBot: 1, autotestPicks: 3, autotestKills: 40 }, ctx);
+  const ctx = { kills: 200, durationMs: 260000 };
+  const r = ach.parseGameExtra({ wave: 9, bossKills: 2, bossClean: 1, bossByBot: 1, autotestPicks: 3, autotestKills: 40 }, ctx);
   assert.ok(!r.error, r.error);
   assert.deepEqual([r.bossKills, r.bossClean, r.bossByBot, r.autotestPicks, r.autotestKills], [2, 1, 1, 3, 40]);
 });
@@ -196,6 +196,9 @@ test('parseGameExtra: правдоподобные боссы и автотес�
 test('parseGameExtra: отклоняет невозможные боссы и автотесты', () => {
   const ctx = { kills: 100, durationMs: 60000 };
   assert.ok(ach.parseGameExtra({ bossKills: 3 }, ctx).error, 'три босса за минуту');
+  // боссы приходят на 5-й волне и каждые 4 волны: к 6-й волне был максимум один (плюс один на старые клиенты)
+  assert.ok(ach.parseGameExtra({ wave: 6, bossKills: 3 }, { kills: 300, durationMs: 600000 }).error, 'три босса к 6-й волне');
+  assert.ok(!ach.parseGameExtra({ wave: 6, bossKills: 2 }, { kills: 300, durationMs: 600000 }).error, 'запас на клиент из кэша');
   assert.ok(ach.parseGameExtra({ bossKills: 1, bossClean: 2 }, ctx).error, 'чистых побед больше побед');
   assert.ok(ach.parseGameExtra({ bossKills: 1, bossByBot: 2 }, ctx).error, 'побед от бота больше побед');
   assert.ok(ach.parseGameExtra({ bossKills: 2 }, { kills: 1, durationMs: 120000 }).error, 'боссов больше, чем убитых');
