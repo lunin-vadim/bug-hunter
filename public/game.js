@@ -73,8 +73,18 @@ const POPUP_MS = 700;
 const MAX_BUGS = 40;
 // «Завали Босса»: большой баг, который надо закликать, пока он ползёт к продакшену
 const BOSS_EMOJI = '👾';
-const BOSS_FIRST_SCORE = 1000;   // с какого счёта появляется первый босс
-const BOSS_EVERY_SCORE = 1500;   // через сколько очков после победы/прорыва — следующий
+const BOSS_FIRST_WAVE = 5;       // на какой волне появляется первый босс
+const BOSS_EVERY_WAVES = 4;      // и дальше каждые столько волн (5, 9, 13…) — не зависит от набранных очков
+// фазы босса по остатку здоровья: «Хаос» — телепорты с предупреждением, «Ярость» — быстрее спускается и чаще зовёт миньонов
+const BOSS_PHASES = [
+  { at: 1, name: '' },
+  { at: 0.6, name: 'ХАОС', banner: 'Босс в хаосе: телепорты!', color: '#c792ff' },
+  { at: 0.25, name: 'ЯРОСТЬ', banner: 'Босс в ярости!', color: '#ff3b3b' },
+];
+const BOSS_WARP_MS = 2600;       // «Хаос»: как часто босс телепортируется
+const BOSS_WARP_WARN_MS = 650;   // за сколько до прыжка мигает и показывает точку назначения
+const BOSS_RAGE_DESCENT = 1.6;   // «Ярость»: во столько раз быстрее ползёт к проду
+const BOSS_RAGE_MINIONS = 0.55;  // и во столько раз короче пауза между миньонами
 const BOSS_HP_BASE = 25;
 const BOSS_HP_STEP = 10;         // каждый следующий босс крепче
 const BOSS_SIZE = 120;
@@ -156,7 +166,7 @@ const el = {
 
 /* ---------- Состояние ---------- */
 let W = 0, H = 0, DPR = 1, S = 1; // S — масштаб размеров/скоростей относительно окна
-let boss = null, bossesDefeated = 0, nextBossScore = BOSS_FIRST_SCORE, shield = 0;
+let boss = null, bossesDefeated = 0, shield = 0;
 let ev = null, nextEventAt = EVENT_FIRST_AT_MS, lastEvent = null;
 let autotestLeft = 0, autotestTimer = 0, autotestShots = [], autotestTick = 0, autotestSpan = AUTOTEST_MS, lastAutotestAt = -Infinity;
 let botFinishing = false; // true, пока выстрел бота наносит урон боссу: так считаем «добил автотестом»
@@ -276,6 +286,8 @@ const sfx = {
   over: () => { tone(330, 0.3, 'sawtooth', 0.12, 110); tone(165, 0.5, 'sawtooth', 0.12, 55, 0.25); },
   bossIn: () => { tone(110, 0.5, 'sawtooth', 0.14, 220); tone(165, 0.5, 'square', 0.08, 330, 0.25); },
   bossHit: () => tone(160, 0.07, 'square', 0.09, 100),
+  bossPhase: () => { tone(90, 0.45, 'sawtooth', 0.15, 180); tone(440, 0.3, 'square', 0.07, 220, 0.15); },
+  bossWarp: () => tone(1400, 0.14, 'sine', 0.07, 300),
   event: () => { tone(440, 0.12, 'square', 0.1); tone(660, 0.12, 'square', 0.1, null, 0.1); tone(880, 0.22, 'square', 0.1, null, 0.2); },
   fever: () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.12, 'square', 0.08, null, i * 0.06)); },
   rankUp: () => { [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, 0.22, 'triangle', 0.12, null, i * 0.1)); tone(131, 0.7, 'sawtooth', 0.08, 65, 0.1); },
@@ -331,6 +343,8 @@ const HAPTICS = {
   fever: [20, 30, 20],
   bossIn: [60, 40, 60],
   bossHit: 12,
+  bossPhase: [50, 30, 90],
+  bossWarp: 15,
   bossDown: [40, 30, 40, 30, 140],
   shieldUp: 25,
   shieldHit: 30,
@@ -596,7 +610,7 @@ function resetGame() {
   score = 0; combo = 0; bestCombo = 0; kills = 0; lives = dayMod() === 'hearts' ? 6 : START_LIVES;
   elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastRefactorAt = -Infinity;
   slowLeft = 0; countdownLeft = 0; sniperPulseAt = 0;
-  boss = null; bossesDefeated = 0; nextBossScore = BOSS_FIRST_SCORE; shield = 0;
+  boss = null; bossesDefeated = 0; shield = 0;
   ev = null; nextEventAt = dayMod() === 'storm' ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null;
   autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0; autotestSpan = AUTOTEST_MS; lastAutotestAt = -Infinity;
   perks = {}; perkPending = false; closePerks(); renderPerkStrip();
@@ -880,10 +894,22 @@ function addShield(n) {
 function spawnBoss() {
   const size = Math.max(BOSS_SIZE * S, 96); // на телефоне масштаб S мал — босс не должен стать крошечным
   const maxHp = BOSS_HP_BASE + BOSS_HP_STEP * bossesDefeated;
-  boss = { x: W / 2, y: -size, size, hp: maxHp, maxHp, phase: 0, flash: 0, minionTimer: BOSS_MINION_MS * 0.5, dropTimer: BOSS_DROP_MS * 0.6, lostAtSpawn: run.livesLost };
-  showBanner('Завали Босса!', '#ff5470');
+  boss = {
+    x: W / 2, y: -size, size, hp: maxHp, maxHp, phase: 0, flash: 0, stage: 0, warpTimer: BOSS_WARP_MS, warpTo: null,
+    minionTimer: BOSS_MINION_MS * 0.5, dropTimer: BOSS_DROP_MS * 0.6, lostAtSpawn: run.livesLost,
+  };
+  showBanner(`Волна ${wave}: Завали Босса!`, '#ff5470');
   sfx.bossIn();
   shake = Math.max(shake, 0.25);
+}
+
+function isBossWave(w) {
+  return w >= BOSS_FIRST_WAVE && (w - BOSS_FIRST_WAVE) % BOSS_EVERY_WAVES === 0;
+}
+
+/** x босса для заданной фазы качания: по ней же считаем, куда он прыгнет в «Хаосе» */
+function bossXAt(ph) {
+  return W / 2 + Math.sin(ph) * (W / 2 - boss.size * 0.6) * 0.85;
 }
 
 function bossHit(px, py) {
@@ -897,7 +923,25 @@ function damageBoss(n) {
   boss.hp -= n;
   boss.flash = 0.15;
   burst(boss.x, boss.y, '#ff9f9f', 4 + n);
-  if (boss.hp <= 0) { defeatBoss(); }
+  if (boss.hp <= 0) { defeatBoss(); return; }
+  while (boss.stage + 1 < BOSS_PHASES.length && boss.hp <= boss.maxHp * BOSS_PHASES[boss.stage + 1].at) { enterBossStage(boss.stage + 1); }
+}
+
+function enterBossStage(n) {
+  const def = BOSS_PHASES[n];
+  boss.stage = n;
+  boss.warpTimer = BOSS_WARP_MS;
+  boss.warpTo = null;
+  showBanner(def.banner, def.color);
+  burst(boss.x, boss.y, def.color, 30);
+  shake = Math.max(shake, 0.4);
+  flash = Math.max(flash, 0.25);
+  sfx.bossPhase();
+  if (n === BOSS_PHASES.length - 1) { // «Ярость» начинается с залпа миньонов
+    for (let i = 0; i < 3 && bugs.length < MAX_BUGS; i++) {
+      spawnBug(BUG_KINDS[i], boss.x + (i - 1) * boss.size * 0.5, boss.y + boss.size * 0.4, false, 1.4);
+    }
+  }
 }
 
 function defeatBoss() {
@@ -917,7 +961,6 @@ function defeatBoss() {
   lives = Math.min(MAX_LIVES, lives + REFACTOR_HEAL);
   bossesDefeated += 1;
   boss = null;
-  nextBossScore = score + BOSS_EVERY_SCORE;
   addPopup(x, y, `+${reward}`, '#ffd166');
   showBanner(`Босс повержен! +${reward}`, '#ffd166');
   shake = 0.6;
@@ -925,19 +968,41 @@ function defeatBoss() {
   sfx.bossDown();
 }
 
+/** «Хаос»: за BOSS_WARP_WARN_MS до прыжка выбираем точку (её видно кольцом), затем босс переносится туда */
+function updateBossWarp(dt, pace) {
+  if (boss.stage < 1 || boss.y <= 0) { return; }
+  boss.warpTimer -= dt * 1000 * pace;
+  if (boss.warpTo === null && boss.warpTimer <= BOSS_WARP_WARN_MS) {
+    // прыжок на заметное расстояние: сдвиг фазы качания на 0.6π…1.4π (косметика, поэтому не из сидового rng)
+    boss.warpTo = boss.phase + Math.PI * (0.6 + Math.random() * 0.8);
+  }
+  if (boss.warpTimer <= 0) {
+    burst(boss.x, boss.y, BOSS_PHASES[1].color, 14);
+    boss.phase = boss.warpTo;
+    boss.x = bossXAt(boss.phase);
+    boss.warpTo = null;
+    boss.warpTimer = BOSS_WARP_MS;
+    burst(boss.x, boss.y, BOSS_PHASES[1].color, 14);
+    sfx.bossWarp();
+  }
+}
+
 /** Возвращает false, если партия закончилась из-за прорыва босса */
 function updateBoss(dt, pace) {
   const line = prodY();
   const topY = (W <= 560 ? 120 : 96) * S + boss.size * 0.5;
+  const rage = boss.stage === BOSS_PHASES.length - 1;
   boss.flash = Math.max(0, boss.flash - dt);
-  boss.phase += dt * 0.9 * pace;
-  boss.x = W / 2 + Math.sin(boss.phase) * (W / 2 - boss.size * 0.6) * 0.85;
+  boss.phase += dt * 0.9 * pace * (boss.stage >= 1 ? 1.35 : 1);
+  if (boss.warpTo !== null) { boss.warpTo += dt * 0.9 * pace * 1.35; } // точка назначения едет вместе с качанием
+  boss.x = bossXAt(boss.phase);
   if (boss.y < topY) {
     boss.y = Math.min(topY, boss.y + 170 * S * dt * pace); // выезжает сверху
   } else {
     const descent = Math.max(25, BOSS_DESCENT_S - 3 * bossesDefeated);
-    boss.y += ((line - topY) / descent) * dt * pace;
+    boss.y += ((line - topY) / descent) * dt * pace * (rage ? BOSS_RAGE_DESCENT : 1);
   }
+  updateBossWarp(dt, pace);
   boss.dropTimer -= dt * 1000;
   if (boss.dropTimer <= 0 && boss.y > 0) {
     boss.dropTimer = BOSS_DROP_MS;
@@ -945,14 +1010,13 @@ function updateBoss(dt, pace) {
   }
   boss.minionTimer -= dt * 1000 * pace;
   if (boss.minionTimer <= 0 && boss.y > 0) {
-    boss.minionTimer = Math.max(1100, BOSS_MINION_MS - 250 * bossesDefeated);
+    boss.minionTimer = Math.max(1100, BOSS_MINION_MS - 250 * bossesDefeated) * (rage ? BOSS_RAGE_MINIONS : 1);
     if (bugs.length < MAX_BUGS) { spawnBug(BUG_KINDS[Math.floor(rng.spawn() * 3)], boss.x, boss.y + boss.size * 0.4, false, 1.4); }
   }
   if (boss.y + boss.size * 0.35 >= line) {
     const bx = boss.x;
     addSplat(bx, line);
     boss = null;
-    nextBossScore = score + BOSS_EVERY_SCORE;
     if (shield >= BOSS_REACH_DAMAGE) { showBanner('Щит выдержал прорыв босса!', '#7fd8ff'); }
     else if (shield > 0) { showBanner('Босс прорвался! Щит поглотил часть', '#ff5470'); }
     else { showBanner('Босс прорвался! −2 сердца', '#ff5470'); }
@@ -1068,6 +1132,7 @@ function update(dt) {
     showBanner(`Волна ${wave}: ${WAVE_NEWS[wave] || 'баги ускоряются'}`, '#ff9f43');
     if (wave >= PERK_FIRST_WAVE && (wave - PERK_FIRST_WAVE) % PERK_EVERY === 0) { perkPending = true; }
     sfx.wave();
+    if (isBossWave(wave) && !boss) { spawnBoss(); } // перк этой волны откроется после боя — как награда
   }
   if (perkPending && !boss) { // во время боя с боссом выбор откладывается до его конца
     perkPending = false;
@@ -1077,7 +1142,6 @@ function update(dt) {
   slowLeft = Math.max(0, slowLeft - ms);
   const pace = slowLeft > 0 ? SLOW_FACTOR : 1;
 
-  if (!boss && score >= nextBossScore) { spawnBoss(); }
   updateEvents(ms);
   updateAutotest(ms);
 
@@ -1185,36 +1249,59 @@ function drawBoss() {
   if (!boss) { return; }
   const sp = getSprite(BOSS_EMOJI, boss.size);
   const w = sp.width / DPR;
-  const pulse = 1 + 0.04 * Math.sin(performance.now() / 180);
+  const rage = boss.stage === BOSS_PHASES.length - 1;
+  const pulse = 1 + (rage ? 0.07 : 0.04) * Math.sin(performance.now() / (rage ? 90 : 180));
+  const stageColor = BOSS_PHASES[boss.stage].color || '#ff5470';
+  if (boss.warpTo !== null) { // куда прыгнет: пунктирное кольцо, чтобы можно было навести заранее
+    const t = Math.max(0, boss.warpTimer) / BOSS_WARP_WARN_MS;
+    ctx.save();
+    ctx.setLineDash([8 * S, 6 * S]);
+    ctx.lineWidth = 3 * S;
+    ctx.strokeStyle = stageColor;
+    ctx.globalAlpha = 0.35 + 0.5 * (1 - t);
+    ctx.beginPath();
+    ctx.arc(bossXAt(boss.warpTo), boss.y, boss.size * (0.45 + 0.25 * t), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
   ctx.save();
   ctx.translate(boss.x, boss.y);
   ctx.rotate(Math.sin(boss.phase * 2) * 0.1);
   ctx.scale(pulse, pulse);
-  ctx.shadowColor = boss.flash > 0 ? '#ffffff' : '#ff5470';
-  ctx.shadowBlur = boss.flash > 0 ? 40 : 24;
+  if (boss.warpTo !== null) { ctx.globalAlpha = 0.45 + 0.55 * Math.abs(Math.sin(performance.now() / 60)); } // мигает перед прыжком
+  ctx.shadowColor = boss.flash > 0 ? '#ffffff' : stageColor;
+  ctx.shadowBlur = boss.flash > 0 ? 40 : (rage ? 36 : 24);
   ctx.drawImage(sp, -w / 2, -w / 2, w, w);
   ctx.restore();
 }
 
 function drawBossBar() {
   if (!boss) { return; }
-  const narrow = W < 600;
-  const bw = narrow ? W - 24 : Math.min(420, W * 0.4);
-  const x = (W - bw) / 2;
-  const y = narrow ? 72 : 28;
+  // полоса встаёт в просвет между HUD слева и кнопками справа; если просвет узкий — под HUD на всю ширину
+  // сам #hud растянут по ширине, поэтому меряем по карточкам (скрытые дают right = 0)
+  const left = Math.max(...[...hud.children].map((c) => c.getBoundingClientRect().right)) + 16;
+  const right = document.getElementById('tools').getBoundingClientRect().left - 16;
+  const narrow = W < 600 || right - left < 240;
+  const bw = narrow ? W - 24 : Math.min(420, right - left);
+  const x = narrow ? 12 : left + (right - left - bw) / 2;
+  const y = narrow ? Math.max(72, hud.getBoundingClientRect().bottom + 24) : 28;
+  const def = BOSS_PHASES[boss.stage];
+  const title = bossesDefeated ? `БАГ-БОСС · ${bossesDefeated + 1}` : 'БАГ-БОСС';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.font = `700 11px ${FONT_UI}`;
   ctx.letterSpacing = '2px';
-  ctx.fillStyle = '#ff9f9f';
-  ctx.fillText(bossesDefeated ? `БАГ-БОСС · ${bossesDefeated + 1}` : 'БАГ-БОСС', x, y - 7);
+  ctx.fillStyle = def.color || '#ff9f9f';
+  ctx.fillText(def.name ? `${title} · ${def.name}` : title, x, y - 7);
   ctx.textAlign = 'right';
   ctx.letterSpacing = '0px';
   ctx.fillText(`${Math.max(0, boss.hp)} / ${boss.maxHp}`, x + bw, y - 7);
   ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
   ctx.fillRect(x, y, bw, 10);
-  ctx.fillStyle = boss.flash > 0 ? '#ffffff' : '#ff5470';
+  ctx.fillStyle = boss.flash > 0 ? '#ffffff' : (def.color || '#ff5470');
   ctx.fillRect(x, y, bw * Math.max(0, boss.hp / boss.maxHp), 10);
+  ctx.fillStyle = 'rgba(8, 10, 14, 0.85)'; // метки порогов фаз
+  for (const p of BOSS_PHASES.slice(1)) { ctx.fillRect(x + bw * p.at - 1, y - 2, 2, 14); }
 }
 
 function drawBugs() {
