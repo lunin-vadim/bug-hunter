@@ -10,7 +10,8 @@
     "dev": "nodemon server.js",
     "test": "node --test test/*.test.js",
     "db:start": "bash scripts/db-start.sh",
-    "db:stop": "bash scripts/db-stop.sh"
+    "db:stop": "bash scripts/db-stop.sh",
+    "db:backup": "bash scripts/backup.sh"
   },
   "engines": {
     "node": "22.x"

@@ -31,15 +31,16 @@ const MAX_KILLS_BASE = 60; // запас на массовые убийства 
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  max: Number(process.env.PG_POOL_MAX) || 10,
+  max: Number(process.env.PG_POOL_MAX) || 5, // у Prisma Postgres Free всего 10 пул-соединений
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000, // при перегрузке БД запрос падает с ошибкой, а не висит бесконечно
 });
 // ошибка простаивающего соединения (рестарт или обслуживание БД) не должна ронять процесс
 pool.on('error', (e) => console.error('PostgreSQL: ошибка простаивающего соединения:', e.message));
 
-/** Короткий кэш общих рейтингов: при наплыве игроков топ-20 не пересчитывается на каждый запрос */
-const BOARD_CACHE_MS = 10000;
+/** Кэш общих рейтингов: топ-20 не пересчитывается на каждый запрос (у Prisma Postgres Free 200 тыс. запросов в месяц).
+ * Своё место игрок видит сразу (оно считается отдельно), а сам топ обновляется раз в BOARD_CACHE_MS */
+const BOARD_CACHE_MS = 30000;
 const boardCache = new Map();
 async function cached(key, load) {
   const hit = boardCache.get(key);
@@ -75,19 +76,35 @@ function setSession(res, user) {
   res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production', maxAge: TOKEN_TTL_S * 1000 });
 }
 
+/** Кэш строк пользователей: сессия проверяется на каждом /api-запросе, а в БД ходим не чаще раза в USER_CACHE_MS.
+ * Свои изменения (партия, кабинет) обновляют или сбрасывают запись сразу */
+const USER_CACHE_MS = 60000;
+const userCache = new Map();
+async function userRow(id) {
+  const hit = userCache.get(id);
+  if (hit && Date.now() - hit.at < USER_CACHE_MS) { return hit.row; }
+  const { rows } = await pool.query(`SELECT ${USER_COLS} FROM users WHERE id = $1`, [id]);
+  if (userCache.size > 5000) { userCache.clear(); } // память ограничена: на бесплатном инстансе 512 МБ
+  userCache.set(id, { at: Date.now(), row: rows[0] || null });
+  return rows[0] || null;
+}
+
 async function loadUser(req, _res, next) {
   req.user = null;
   const token = req.cookies[COOKIE];
   if (token) {
     try {
       const { sub, v } = jwt.verify(token, JWT_SECRET);
-      const { rows } = await pool.query(`SELECT ${USER_COLS} FROM users WHERE id = $1`, [sub]);
+      const row = await userRow(sub);
       // токены без `v` считаем версией 0; смена пароля увеличивает token_version и гасит старые сессии
-      req.user = rows[0] && (v ?? 0) === rows[0].token_version ? rows[0] : null;
+      req.user = row && (v ?? 0) === row.token_version ? row : null;
     } catch { /* протухший или чужой токен — считаем гостем */ }
   }
   next();
 }
+// для проверки здоровья Render (каждые несколько секунд): без запроса к БД, чтобы не тратить её квоту
+app.get('/livez', (_req, res) => res.json({ status: 'ok' }));
+// ручная проверка с базой
 app.get('/healthz', asyncH(async (_req, res) => {
   await pool.query('SELECT 1');
   res.json({ status: 'ok' });
@@ -187,23 +204,24 @@ app.post('/api/score', requireAuth, asyncH(async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // FOR UPDATE: параллельные отправки одного игрока обрабатываются по очереди
-    const { rows: [cur] } = await client.query(`SELECT ${USER_COLS} FROM users WHERE id = $1 FOR UPDATE`, [req.user.id]);
-    // не принимаем партии чаще, чем раз в MIN_GAME_MS: так нельзя забросать рейтинг запросами
-    const recent = await client.query(
-      "SELECT 1 FROM games WHERE user_id = $1 AND created_at > now() - ($2 || ' milliseconds')::interval LIMIT 1",
-      [req.user.id, String(MIN_GAME_MS)],
+    // Один запрос вместо пяти (каждый запрос к Prisma Postgres — платная «операция»):
+    // FOR UPDATE — параллельные отправки одного игрока идут по очереди; recent — не чаще раза в MIN_GAME_MS;
+    // лучшие результаты дня и недели до этой партии; уже открытые ачивки
+    const { rows: [cur] } = await client.query(
+      `SELECT ${USER_COLS},
+         EXISTS (SELECT 1 FROM games g WHERE g.user_id = u.id AND g.created_at > now() - ($2 || ' milliseconds')::interval) AS recent,
+         (SELECT MAX(g.score) FROM games g WHERE g.user_id = u.id AND g.daily = $3::date) AS daily_prev,
+         (SELECT MAX(g.score) FROM games g WHERE g.user_id = u.id AND g.weekly = $4::text) AS weekly_prev,
+         (SELECT COALESCE(array_agg(a.code), '{}') FROM user_achievements a WHERE a.user_id = u.id) AS owned
+       FROM users u WHERE u.id = $1 FOR UPDATE OF u`,
+      [req.user.id, String(MIN_GAME_MS), dailyDate, weeklyKey],
     );
-    if (recent.rowCount) {
+    if (cur.recent) {
       await client.query('ROLLBACK');
       return res.status(429).json({ error: 'Слишком частая отправка результатов' });
     }
-    const dailyPrevBest = dailyDate
-      ? (await client.query('SELECT MAX(score) AS s FROM games WHERE user_id = $1 AND daily = $2', [req.user.id, dailyDate])).rows[0].s
-      : null;
-    const weeklyPrevBest = weeklyKey
-      ? (await client.query('SELECT MAX(score) AS s FROM games WHERE user_id = $1 AND weekly = $2', [req.user.id, weeklyKey])).rows[0].s
-      : null;
+    const dailyPrevBest = cur.daily_prev;
+    const weeklyPrevBest = cur.weekly_prev;
     const prev = ach.statsFromRow(cur);
     const next = ach.applyGame(prev, { kills, durationMs, extra });
     await client.query(
@@ -216,13 +234,15 @@ app.post('/api/score', requireAuth, asyncH(async (req, res) => {
        WHERE id = $1 RETURNING ${USER_COLS}`,
       [req.user.id, next.totalKills, score, next.gamesPlayed, next.bestKillsGame, next.bestCombo, next.bestWave, JSON.stringify(ach.statsJson(next))],
     );
-    const owned = new Set((await client.query('SELECT code FROM user_achievements WHERE user_id = $1', [req.user.id])).rows.map((r) => r.code));
-    const fresh = ach.evaluate(next, owned);
-    for (const code of fresh) {
-      await client.query('INSERT INTO user_achievements (user_id, code) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.user.id, code]);
+    const fresh = ach.evaluate(next, new Set(cur.owned));
+    if (fresh.length) {
+      await client.query(
+        'INSERT INTO user_achievements (user_id, code) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING',
+        [req.user.id, fresh],
+      );
     }
     await client.query('COMMIT');
-    boardCache.clear(); // свой результат игрок должен увидеть в рейтинге сразу
+    userCache.set(req.user.id, { at: Date.now(), row: rows[0] });
 
     let dailyResult = null;
     if (dailyDate) {
@@ -255,6 +275,11 @@ app.post('/api/score', requireAuth, asyncH(async (req, res) => {
   }
 }));
 
+// любое изменение в кабинете (имя, пароль, сброс, удаление) сбрасывает кэш пользователя
+app.use('/api/profile', (req, res, next) => {
+  if (req.method !== 'GET' && req.user) { const id = req.user.id; res.on('finish', () => userCache.delete(id)); }
+  next();
+});
 app.use('/api/profile', requireAuth, createProfileRouter({
   pool, asyncH, authLimiter, setSession, validateCredentials, publicUser, USER_COLS, COOKIE,
 }));
@@ -374,7 +399,17 @@ app.use((err, _req, res, _next) => {
 
 (async () => {
   try {
-    await pool.query(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
+    // бесплатный инстанс часто засыпает и стартует заново: схему применяем, только если schema.sql изменился (1 запрос вместо ~30)
+    const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+    const hash = crypto.createHash('sha256').update(schema).digest('hex');
+    const applied = await pool.query('SELECT hash FROM schema_meta LIMIT 1').then((r) => r.rows[0]?.hash, () => null);
+    if (applied !== hash) {
+      await pool.query(`${schema}
+        CREATE TABLE IF NOT EXISTS schema_meta (hash TEXT NOT NULL);
+        DELETE FROM schema_meta;
+        INSERT INTO schema_meta (hash) VALUES ('${hash}');`);
+      console.log('Схема БД обновлена');
+    }
   } catch (e) {
     console.error(`Не удалось подключиться к PostgreSQL (${DATABASE_URL.replace(/:[^:@/]*@/, ':***@')}): ${e.message}`);
     console.error('Запустите БД: npm run db:start (или docker compose up -d)');

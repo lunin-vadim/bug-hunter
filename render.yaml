@@ -1,29 +1,22 @@
-# Render Blueprint. Регион существующих сервиса и базы задан при создании и здесь не меняется
-# (по умолчанию oregon); чтобы переехать ближе к игрокам, их нужно пересоздать.
+# Render Blueprint: бесплатный веб-сервис, база — внешняя (Prisma Postgres)
 services:
   - type: web
     name: bug-hunter
     runtime: node
-    # 0.5 CPU / 512 MB, не засыпает (на free сервис спит после 15 мин без запросов и просыпается ~минуту)
-    plan: 0.5c-512mb
+    # free: засыпает после 15 мин без запросов, просыпается ~минуту; 750 инстанс-часов в месяц на воркспейс
+    plan: free
     buildCommand: npm ci --omit=dev
     startCommand: node server.js
-    # проверяет и процесс, и соединение с БД; неудачный деплой не заменит рабочий
-    healthCheckPath: /healthz
+    # Render проверяет здоровье каждые несколько секунд: /livez не ходит в БД и не тратит квоту операций Prisma
+    healthCheckPath: /livez
     envVars:
       - key: NODE_ENV
         value: production
       - key: JWT_SECRET
         generateValue: true
+      # строка подключения Prisma Postgres (пул: pooled.db.prisma.io); вводится в панели Render, в репозиторий не попадает
       - key: DATABASE_URL
-        fromDatabase:
-          name: bug-hunter-db
-          property: connectionString
-      # соединений с БД на инстанс; у 0.1c-256mb лимит 100 на всю базу
+        sync: false
+      # соединений с БД; у Prisma Postgres Free всего 10 пул-соединений
       - key: PG_POOL_MAX
-        value: '20'
-
-databases:
-  - name: bug-hunter-db
-    # платный план: free-база удаляется через 30 дней (+14 дней отсрочки) вместе с данными
-    plan: 0.1c-256mb
+        value: '5'
