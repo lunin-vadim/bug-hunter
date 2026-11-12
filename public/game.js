@@ -2628,6 +2628,11 @@ el.logout.addEventListener('click', async () => {
 
 /* ---------- Старт ---------- */
 loadSession().then(loadDaily);
+
+// офлайн-режим и установка как приложение (manifest.webmanifest + sw.js); без сервера (file://) не нужен
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { /* не критично */ }); });
+}
 el.sound.classList.toggle('off', muted);
 el.sound.setAttribute('aria-pressed', String(muted));
 el.music.classList.toggle('off', !musicOn);
