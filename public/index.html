@@ -145,6 +145,18 @@
         <button id="btn-daily" class="secondary daily-btn">Играть задачу дня</button>
       </div>
 
+      <div id="weekly" class="daily weekly" hidden>
+        <div class="daily-cal" aria-hidden="true"><small>нед</small><b id="weekly-num"></b></div>
+        <div class="daily-body">
+          <span class="daily-kicker">Челлендж недели · два мутатора</span>
+          <p class="daily-mod"><b id="weekly-mods"></b></p>
+          <small id="weekly-desc"></small>
+          <small id="weekly-best"></small>
+          <small id="weekly-left" class="daily-left"></small>
+        </div>
+        <button id="btn-weekly" class="secondary daily-btn">Играть челлендж недели</button>
+      </div>
+
       <p id="save-status" class="stats small" hidden></p>
       <div class="actions">
         <button id="btn-start" class="primary">Играть</button>
@@ -170,6 +182,7 @@
       <button id="tab-single" class="tab" role="tab" aria-selected="false" data-sort="single" title="Максимум багов за одну партию">За раз</button>
       <button id="tab-score" class="tab" role="tab" aria-selected="false" data-sort="score" title="Лучший счёт за партию">Очки</button>
       <button id="tab-daily" class="tab" role="tab" aria-selected="false" data-sort="daily" title="Лучшие результаты сегодняшней задачи дня">Сегодня</button>
+      <button id="tab-weekly" class="tab" role="tab" aria-selected="false" data-sort="weekly" title="Лучшие результаты челленджа недели">Неделя</button>
     </div>
     <div class="drawer-body">
       <p id="board-daily" class="board-daily" hidden></p>

@@ -232,11 +232,19 @@ let botFinishing = false; // true, пока выстрел бота наноси
 let perks = {}, perkPending = false, perkOpen = false, perkChoosing = false, perkChoices = [];
 
 /* ---------- Задача дня: у всех на сутки один сид ---------- */
-let mode = 'normal'; // 'normal' | 'daily'
+let mode = 'normal'; // 'normal' | 'daily' | 'weekly'
 let dailyInfo = null; // ответ /api/daily: { date, modifier, top, me }
+let weeklyInfo = null; // ответ /api/weekly: { week, endsAt, modifiers, top, me }
 // три независимых потока случайности: набор жуков и события не зависят от того, сколько раз игрок кликнул
 let rng = { spawn: Math.random, bug: Math.random, perk: Math.random };
-const dayMod = () => (mode === 'daily' && dailyInfo ? dailyInfo.modifier.id : null);
+/** Описание челленджа: задача дня (один мутатор) или неделя (два); null — обычная игра */
+function challengeOf(kind) {
+  if (kind === 'daily' && dailyInfo) { return { kind, key: dailyInfo.date, mods: [dailyInfo.modifier], me: dailyInfo.me, label: 'Задача дня', short: 'дня' }; }
+  if (kind === 'weekly' && weeklyInfo) { return { kind, key: weeklyInfo.week, mods: weeklyInfo.modifiers, me: weeklyInfo.me, label: 'Челлендж недели', short: 'недели' }; }
+  return null;
+}
+const challenge = () => challengeOf(mode);
+const hasMod = (id) => { const c = challenge(); return !!c && c.mods.some((m) => m.id === id); };
 
 /** FNV-1a: тот же хеш, что в daily.js на сервере */
 function hashString(str) {
@@ -592,7 +600,7 @@ function getImage(src) {
 /** Перки меняют частоту выпадения бонусов */
 function perkWeight(k) {
   if (k.behavior === 'autotest') { return 1 + 0.6 * perkLv('tests'); }
-  if (k.behavior === 'golden') { return (1 + perkLv('gold')) * (dayMod() === 'gold' ? 3 : 1); }
+  if (k.behavior === 'golden') { return (1 + perkLv('gold')) * (hasMod('gold') ? 3 : 1); }
   if (k.behavior === 'bomb') { return 1 + 0.6 * perkLv('sapper'); }
   return 1;
 }
@@ -620,7 +628,7 @@ function pickKind() {
 
 function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
   const inWave = Math.max(0, Math.min(1, (elapsed - (nextWaveAt - WAVE_EVERY_MS)) / WAVE_EVERY_MS));
-  const speedBoost = Math.min(SPEED_CAP, 1 + (wave - 1) * SPEED_STEP_PER_WAVE + inWave * SPEED_STEP_IN_WAVE) * 0.9 ** perkLv('slow') * (perkLv('debt') ? 1.15 : 1) * (dayMod() === 'fast' ? 1.2 : 1);
+  const speedBoost = Math.min(SPEED_CAP, 1 + (wave - 1) * SPEED_STEP_PER_WAVE + inWave * SPEED_STEP_IN_WAVE) * 0.9 ** perkLv('slow') * (perkLv('debt') ? 1.15 : 1) * (hasMod('fast') ? 1.2 : 1);
   if (kind.behavior === 'refactor') { lastRefactorAt = elapsed; }
   if (kind.behavior === 'autotest') { lastAutotestAt = elapsed; sfx.rareSpawn(); } // редкий гость: даём о себе знать
   bugs.push({
@@ -745,11 +753,11 @@ function showBanner(text, color) { banner = { text, color, left: BANNER_MS }; }
 /* ---------- Игровая логика ---------- */
 function resetGame() {
   bugs = []; splats = []; popups = []; particles = [];
-  score = 0; combo = 0; bestCombo = 0; kills = 0; lives = dayMod() === 'hearts' ? 6 : START_LIVES;
+  score = 0; combo = 0; bestCombo = 0; kills = 0; lives = hasMod('hearts') ? 6 : START_LIVES;
   elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastRefactorAt = -Infinity;
   slowLeft = 0; countdownLeft = 0; sniperPulseAt = 0;
   boss = null; bossesDefeated = 0; bossesMet = 0; shield = 0;
-  ev = null; nextEventAt = dayMod() === 'storm' ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null; prodLift = 0;
+  ev = null; nextEventAt = hasMod('storm') ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null; prodLift = 0;
   autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0; autotestSpan = AUTOTEST_MS; lastAutotestAt = -Infinity;
   perks = {}; perkPending = false; closePerks(); renderPerkStrip();
   hintQueue = []; hintAt = -Infinity;
@@ -757,10 +765,12 @@ function resetGame() {
   banner = null; shake = 0; flash = 0;
 }
 
-/** Задача дня стартует только при загруженной задаче; иначе — обычная игра */
+/** Челлендж стартует только при загруженной задаче; иначе — обычная игра */
 function startGame(m = mode) {
-  mode = m === 'daily' && dailyInfo ? 'daily' : 'normal';
-  if (mode === 'daily') { seedRng(dailyInfo.date); } else { rng = { spawn: Math.random, bug: Math.random, perk: Math.random }; }
+  mode = challengeOf(m) ? m : 'normal';
+  const ch = challenge();
+  // сид недели отличается от сида дня даже при совпадении строк: у недели свой префикс
+  if (ch) { seedRng(ch.kind === 'weekly' ? `week:${ch.key}` : ch.key); } else { rng = { spawn: Math.random, bug: Math.random, perk: Math.random }; }
   resetGame();
   loadGhost();
   phase = 'playing';
@@ -769,13 +779,10 @@ function startGame(m = mode) {
   el.saveStatus.hidden = true;
   hud.hidden = false;
   lastTs = performance.now();
-  el.best.previousElementSibling.textContent = mode === 'daily' ? 'Лучший день' : 'Рекорд';
-  if (mode === 'daily') {
-    const m = dailyInfo.modifier;
-    showBanner(`${m.icon} ${m.name}: ${m.desc}`, '#b8f04a');
-  }
+  el.best.previousElementSibling.textContent = ch ? `Рекорд ${ch.short}` : 'Рекорд';
+  if (ch) { showBanner(ch.mods.map((m) => `${m.icon} ${m.name}`).join(' + '), '#b8f04a'); }
   updateHud();
-  renderDaily();
+  renderChallenges();
   music.sync();
 }
 
@@ -783,27 +790,27 @@ function endGame() {
   phase = 'over';
   music.sync();
   sfx.over();
-  const daily = mode === 'daily' && dailyInfo;
+  const ch = challenge();
   let isRecord;
-  if (daily) {
-    isRecord = score > dailyBestToday();
-    if (isRecord) { saveDailyBest(score); }
+  if (ch) {
+    isRecord = score > challengeBest(ch);
+    if (isRecord) { saveChallengeBest(ch, score); }
   } else {
     isRecord = score > best;
     if (isRecord) { best = score; saveBest(best); }
   }
-  el.title.textContent = daily ? (isRecord ? 'Рекорд дня' : 'Задача дня') : (isRecord ? 'Новый рекорд' : 'Игра окончена');
-  el.text.textContent = daily
-    ? `${dailyInfo.modifier.icon} ${dailyInfo.modifier.name}: релиз сорван, баги добрались до продакшена.`
+  el.title.textContent = ch ? (isRecord ? `Рекорд ${ch.short}` : ch.label) : (isRecord ? 'Новый рекорд' : 'Игра окончена');
+  el.text.textContent = ch
+    ? `${ch.mods.map((m) => `${m.icon} ${m.name}`).join(' + ')}: релиз сорван, баги добрались до продакшена.`
     : 'Релиз сорван: баги добрались до продакшена.';
   el.help.hidden = true;
-  el.stats.textContent = `Очки: ${score} · Убито: ${kills} · Лучшее комбо: ${bestCombo} · Волна: ${wave} · ${daily ? 'Лучший сегодня' : 'Рекорд'}: ${daily ? dailyBestToday() : best}`;
+  el.stats.textContent = `Очки: ${score} · Убито: ${kills} · Лучшее комбо: ${bestCombo} · Волна: ${wave} · ${ch ? `Рекорд ${ch.short}` : 'Рекорд'}: ${ch ? challengeBest(ch) : best}`;
   el.start.textContent = 'Ещё раз';
   run.waveScores.push(score);
   renderSummary();
   overlay.hidden = false;
   updateHud();
-  renderDaily();
+  renderChallenges();
   submitResult(score, kills, Math.round(elapsed));
 }
 
@@ -818,7 +825,7 @@ function setPaused(p) {
     summaryBox.hidden = true;
     el.start.textContent = 'Продолжить';
     overlay.hidden = false;
-    renderDaily();
+    renderChallenges();
     music.sync();
   } else if (!p && phase === 'paused') {
     phase = 'playing';
@@ -851,7 +858,7 @@ function loseLife(x = W / 2, cause = null) {
 }
 
 const perkLv = (id) => perks[id] || 0;
-const comboStep = () => Math.max(4, COMBO_MULT_STEP - 2 * perkLv('azart') - (dayMod() === 'azart' ? 4 : 0));
+const comboStep = () => Math.max(4, COMBO_MULT_STEP - 2 * perkLv('azart') - (hasMod('azart') ? 4 : 0));
 const hitMul = () => 1 + 0.35 * perkLv('sniper');
 const scoreMul = () => (1 + 0.15 * perkLv('points')) * (perkLv('debt') ? 1.4 : 1);
 
@@ -1033,9 +1040,9 @@ function updateEvents(ms) {
   const lift = ev && ev.type === 'friday' ? H * FRIDAY_LIFT : 0;
   const step = (H * FRIDAY_LIFT * ms) / (FRIDAY_RISE_S * 1000);
   prodLift = prodLift < lift ? Math.min(lift, prodLift + step) : Math.max(lift, prodLift - step * 2);
-  if (!ev && !boss && (wave >= 2 || dayMod() === 'storm') && elapsed >= nextEventAt) {
+  if (!ev && !boss && (wave >= 2 || hasMod('storm')) && elapsed >= nextEventAt) {
     startEvent();
-    const gap = dayMod() === 'storm' ? STORM_GAP_MS : EVENT_GAP_MS;
+    const gap = hasMod('storm') ? STORM_GAP_MS : EVENT_GAP_MS;
     nextEventAt = elapsed + gap[0] + rng.spawn() * (gap[1] - gap[0]) + (ev ? ev.left : 0);
   }
 }
@@ -1857,7 +1864,8 @@ function updateHud() {
     h.className = left >= 2 ? 'heart' : left === 1 ? 'heart half' : 'heart empty';
   });
   el.lives.setAttribute('aria-label', `Жизни: ${Math.max(0, lives) / 2} из ${MAX_LIVES / 2}`);
-  el.best.textContent = Math.max(mode === 'daily' ? dailyBestToday() : best, score);
+  const ch = challenge();
+  el.best.textContent = Math.max(ch ? challengeBest(ch) : best, score);
 }
 
 /* ---------- Цикл ---------- */
@@ -2061,31 +2069,32 @@ async function loadSession() {
   renderUser();
 }
 
-/* ---------- Задача дня: карточка на стартовом экране ---------- */
-const dailyBox = document.getElementById('daily');
-const dailyKey = () => `bug-hunter-fullscreen:daily:${dailyInfo.date}`;
+/* ---------- Челленджи: задача дня и неделя, карточки на стартовом экране ---------- */
+const chKey = (ch) => `bug-hunter-fullscreen:${ch.kind}:${ch.key}`;
 
-/** Лучший результат за сегодня: серверный (если вошли) или локальный, смотря что выше */
-function dailyBestToday() {
-  if (!dailyInfo) { return 0; }
+/** Лучший результат челленджа: серверный (если вошли) или локальный, смотря что выше */
+function challengeBest(ch) {
+  if (!ch) { return 0; }
   let local = 0;
-  try { local = Number(localStorage.getItem(dailyKey())) || 0; } catch { /* ignore */ }
-  return Math.max(dailyInfo.me ? dailyInfo.me.score : 0, local);
+  try { local = Number(localStorage.getItem(chKey(ch))) || 0; } catch { /* ignore */ }
+  return Math.max(ch.me ? ch.me.score : 0, local);
 }
-function saveDailyBest(v) {
+function saveChallengeBest(ch, v) {
   try {
-    localStorage.setItem(dailyKey(), String(v));
-    localStorage.setItem(`${dailyKey()}:ghost`, JSON.stringify(run.timeline)); // «призрак» — ход лучшей попытки
+    localStorage.setItem(chKey(ch), String(v));
+    localStorage.setItem(`${chKey(ch)}:ghost`, JSON.stringify(run.timeline)); // «призрак» — ход лучшей попытки
   } catch { /* ignore */ }
 }
+const dailyBestToday = () => challengeBest(challengeOf('daily'));
 
-/** Счёт лучшей сегодняшней попытки по секундам (только в этом браузере) */
+/** Счёт лучшей попытки челленджа по секундам (только в этом браузере) */
 let ghost = null;
 function loadGhost() {
   ghost = null;
-  if (mode !== 'daily' || !dailyInfo) { return; }
+  const ch = challenge();
+  if (!ch) { return; }
   try {
-    const g = JSON.parse(localStorage.getItem(`${dailyKey()}:ghost`) || 'null');
+    const g = JSON.parse(localStorage.getItem(`${chKey(ch)}:ghost`) || 'null');
     if (Array.isArray(g) && g.length) { ghost = g; }
   } catch { /* ignore */ }
 }
@@ -2097,45 +2106,63 @@ function drawGhost() {
   const past = sec >= ghost.length;
   const delta = score - ghost[Math.min(sec, ghost.length - 1)];
   const rect = hud.getBoundingClientRect();
+  const who = `Призрак ${challenge().short}`;
   ctx.font = `700 13px ${FONT_UI}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.fillStyle = delta >= 0 ? BRAND : '#ff9f9f';
   const sign = delta > 0 ? '+' : delta < 0 ? '−' : '±';
-  const text = past ? `⏱️ Призрак дня закончил на ${ghost[ghost.length - 1]} · ${sign}${Math.abs(delta)}` : `⏱️ Призрак дня: ${sign}${Math.abs(delta)}`;
+  const text = past ? `⏱️ ${who} закончил на ${ghost[ghost.length - 1]} · ${sign}${Math.abs(delta)}` : `⏱️ ${who}: ${sign}${Math.abs(delta)}`;
   ctx.fillText(text, 16, Math.max(rect.bottom, 60) + (W < 600 && boss ? 64 : 10));
 }
 
 async function loadDaily() {
-  try {
-    dailyInfo = await api('/api/daily');
-  } catch {
-    dailyInfo = null; // нет сервера — без задачи дня
-  }
-  renderDaily();
+  const [d, w] = await Promise.allSettled([api('/api/daily'), api('/api/weekly')]);
+  dailyInfo = d.status === 'fulfilled' ? d.value : null; // нет сервера — без челленджей
+  weeklyInfo = w.status === 'fulfilled' ? w.value : null;
+  renderChallenges();
 }
 
-function renderDaily() {
-  if (!dailyBox) { return; }
-  dailyBox.hidden = !dailyInfo || phase === 'paused' || phase === 'playing';
-  if (!dailyInfo) { return; }
-  const d = new Date(`${dailyInfo.date}T00:00:00Z`);
-  document.getElementById('daily-month').textContent = d.toLocaleDateString('ru-RU', { month: 'short', timeZone: 'UTC' }).replace('.', '');
-  document.getElementById('daily-day').textContent = d.getUTCDate();
-  const m = dailyInfo.modifier;
-  document.getElementById('daily-mod-ic').textContent = m.icon;
-  document.getElementById('daily-mod-name').textContent = m.name;
-  document.getElementById('daily-mod-desc').textContent = m.desc;
-  const best = dailyBestToday();
-  const left = Date.parse(`${dailyInfo.date}T00:00:00Z`) + 24 * 3600 * 1000 - Date.now();
-  const h = Math.max(0, Math.floor(left / 3600000));
-  const min = Math.max(0, Math.floor((left % 3600000) / 60000));
-  document.getElementById('daily-best').textContent = best ? `Лучший сегодня: ${best}` : 'Сегодня ещё не пробовали';
-  document.getElementById('daily-left').textContent = `Новая через ${h} ч ${min} мин`;
-  document.getElementById('btn-daily').textContent = best ? 'Побить свой результат' : 'Играть задачу дня';
+function leftText(ms) {
+  const d = Math.floor(ms / 86400000);
+  const h = Math.max(0, Math.floor((ms % 86400000) / 3600000));
+  const min = Math.max(0, Math.floor((ms % 3600000) / 60000));
+  return d > 0 ? `${d} д ${h} ч` : `${h} ч ${min} мин`;
+}
+
+function renderChallenges() {
+  const hide = phase === 'paused' || phase === 'playing';
+  const dailyBox = document.getElementById('daily');
+  dailyBox.hidden = !dailyInfo || hide;
+  if (dailyInfo) {
+    const d = new Date(`${dailyInfo.date}T00:00:00Z`);
+    document.getElementById('daily-month').textContent = d.toLocaleDateString('ru-RU', { month: 'short', timeZone: 'UTC' }).replace('.', '');
+    document.getElementById('daily-day').textContent = d.getUTCDate();
+    const m = dailyInfo.modifier;
+    document.getElementById('daily-mod-ic').textContent = m.icon;
+    document.getElementById('daily-mod-name').textContent = m.name;
+    document.getElementById('daily-mod-desc').textContent = m.desc;
+    const bestD = dailyBestToday();
+    document.getElementById('daily-best').textContent = bestD ? `Лучший сегодня: ${bestD}` : 'Сегодня ещё не пробовали';
+    document.getElementById('daily-left').textContent = `Новая через ${leftText(Date.parse(`${dailyInfo.date}T00:00:00Z`) + 86400000 - Date.now())}`;
+    document.getElementById('btn-daily').textContent = bestD ? 'Побить свой результат' : 'Играть задачу дня';
+  }
+  const weeklyBox = document.getElementById('weekly');
+  weeklyBox.hidden = !weeklyInfo || hide;
+  if (weeklyInfo) {
+    document.getElementById('weekly-num').textContent = weeklyInfo.week.split('-W')[1].replace(/^0/, '');
+    const [a, b] = weeklyInfo.modifiers;
+    document.getElementById('weekly-mods').textContent = `${a.icon} ${a.name} + ${b.icon} ${b.name}`;
+    document.getElementById('weekly-desc').textContent = `${a.desc}; ${b.desc.charAt(0).toLowerCase()}${b.desc.slice(1)}`;
+    const bestW = challengeBest(challengeOf('weekly'));
+    document.getElementById('weekly-best').textContent = bestW ? `Лучший за неделю: ${bestW}` : 'На этой неделе ещё не пробовали';
+    document.getElementById('weekly-left').textContent = `До конца недели ${leftText(weeklyInfo.endsAt - Date.now())}`;
+    document.getElementById('btn-weekly').textContent = bestW ? 'Побить недельный результат' : 'Играть челлендж недели';
+  }
 }
 
 document.getElementById('btn-daily')?.addEventListener('click', () => { if (phase !== 'playing') { startGame('daily'); } });
+document.getElementById('btn-weekly')?.addEventListener('click', () => { if (phase !== 'playing') { startGame('weekly'); } });
 
 async function submitResult(finalScore, finalKills, durationMs) {
   if (!currentUser) {
@@ -2153,13 +2180,15 @@ async function submitResult(finalScore, finalKills, durationMs) {
       bossKills: run.bossKills, bossClean: run.bossClean, bossByBot: run.bossByBot,
       autotestPicks: run.autotestPicks, autotestKills: run.autotestKills,
       daily: mode === 'daily' && dailyInfo ? dailyInfo.date : undefined,
+      weekly: mode === 'weekly' && weeklyInfo ? weeklyInfo.week : undefined,
     });
     currentUser = data.user;
     renderUser();
-    el.saveStatus.textContent = data.daily
-      ? `Задача дня: место ${data.daily.rank}${data.daily.isBest ? ' · новый лучший результат' : ''} · лучший ${data.daily.best}`
+    const ch = data.daily || data.weekly;
+    el.saveStatus.textContent = ch
+      ? `${data.daily ? 'Задача дня' : 'Челлендж недели'}: место ${ch.rank}${ch.isBest ? ' · новый лучший результат' : ''} · лучший ${ch.best}`
       : `Сохранено · всего убито: ${currentUser.totalKills}`;
-    if (data.daily) { loadDaily(); }
+    if (ch) { loadDaily(); }
     if (data.newRank) { setTimeout(() => showRankUp(data.newRank), 900); } // даём увидеть итоги партии
     toastAchievements(data.newAchievements || []);
   } catch (e) {
@@ -2480,8 +2509,8 @@ function makeShareCard() {
   g.fillText('🐛 Bug Hunter', 64, 56);
   g.fillStyle = '#9aa4b5';
   g.font = `600 26px ${FONT_UI}`;
-  const daily = mode === 'daily' && dailyInfo;
-  g.fillText(daily ? `Задача дня · ${dailyInfo.date} · ${dailyInfo.modifier.icon} ${dailyInfo.modifier.name}` : 'Охота на багов перед релизом', 64, 108);
+  const chal = challenge();
+  g.fillText(chal ? `${chal.label} · ${chal.key} · ${chal.mods.map((m) => `${m.icon} ${m.name}`).join(' + ')}` : 'Охота на багов перед релизом', 64, 108);
   g.fillStyle = '#ffffff';
   g.font = `700 120px ${FONT_DISPLAY}`;
   g.fillText(String(score), 64, 160);

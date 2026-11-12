@@ -51,10 +51,11 @@
       t.classList.toggle('active', on);
       t.setAttribute('aria-selected', String(on));
     }
-    // во вкладке «Сегодня» те же три столбца показывают волну, убитых и очки, отсортировано по очкам
+    // во вкладках «Сегодня» и «Неделя» те же три столбца показывают волну, убитых и очки, отсортировано по очкам
+    const ch = next === 'daily' || next === 'weekly';
     heads.forEach((h, i) => {
-      h.textContent = next === 'daily' ? DAILY_HEADS[i] : headTexts[i];
-      h.classList.toggle('sorted', h.dataset.col === (next === 'daily' ? 'score' : next));
+      h.textContent = ch ? DAILY_HEADS[i] : headTexts[i];
+      h.classList.toggle('sorted', h.dataset.col === (ch ? 'score' : next));
     });
     load();
   }
@@ -90,14 +91,18 @@
     td.append(wrap);
   }
 
-  /** Вкладка «Сегодня»: рейтинг задачи дня; дата и мутатор над таблицей */
-  async function loadDailyTab(id) {
-    const data = await api('/api/daily');
+  /** Вкладки «Сегодня» и «Неделя»: рейтинг челленджа; дата и мутаторы над таблицей */
+  async function loadChallengeTab(id, kind) {
+    const data = await api(`/api/${kind}`);
     if (id !== loadId) { return; }
-    const d = new Date(`${data.date}T00:00:00Z`);
-    dailyInfoEl.textContent = `📅 ${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' })} · ${data.modifier.icon} ${data.modifier.name}: ${data.modifier.desc}`;
+    if (kind === 'daily') {
+      const d = new Date(`${data.date}T00:00:00Z`);
+      dailyInfoEl.textContent = `📅 ${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' })} · ${data.modifier.icon} ${data.modifier.name}: ${data.modifier.desc}`;
+    } else {
+      dailyInfoEl.textContent = `🗓️ Неделя ${data.week.split('-W')[1]} · ${data.modifiers.map((m) => `${m.icon} ${m.name}`).join(' + ')}`;
+    }
     dailyInfoEl.hidden = false;
-    if (!data.top.length) { messageRow('Сегодня ещё никто не играл — станьте первым!'); }
+    if (!data.top.length) { messageRow(kind === 'daily' ? 'Сегодня ещё никто не играл — станьте первым!' : 'На этой неделе ещё никто не играл — станьте первым!'); }
     for (const r of data.top) {
       const tr = body.insertRow();
       if (currentUser && r.username === currentUser.username) { tr.className = 'mine'; }
@@ -121,7 +126,7 @@
     meLine.hidden = true;
     dailyInfoEl.hidden = true;
     try {
-      if (sort === 'daily') { await loadDailyTab(id); return; }
+      if (sort === 'daily' || sort === 'weekly') { await loadChallengeTab(id, sort); return; }
       const data = await api(`/api/leaderboard?sort=${sort}`);
       if (id !== loadId) { return; } // пришёл устаревший ответ после смены вкладки
       if (!data.top.length) { messageRow('Пока никого — станьте первым!'); }

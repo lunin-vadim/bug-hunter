@@ -50,3 +50,7 @@ CREATE TABLE IF NOT EXISTS user_achievements (
 -- ---------- Задача дня ----------
 ALTER TABLE games ADD COLUMN IF NOT EXISTS daily DATE;
 CREATE INDEX IF NOT EXISTS games_daily_idx ON games (daily, score DESC) WHERE daily IS NOT NULL;
+
+-- ---------- Недельный челлендж ----------
+ALTER TABLE games ADD COLUMN IF NOT EXISTS weekly TEXT;
+CREATE INDEX IF NOT EXISTS games_weekly_idx ON games (weekly, score DESC) WHERE weekly IS NOT NULL;

@@ -399,6 +399,12 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
 .daily-left { opacity: .7; }
 .daily-btn { grid-column: 1 / -1; border-color: rgba(184, 240, 74, .45); font-weight: 700; }
 .daily-btn:hover { background: rgba(184, 240, 74, .12); }
+/* недельный челлендж: та же карточка, свой цвет */
+.weekly { margin-top: 10px; background: linear-gradient(135deg, rgba(199, 146, 255, .12), rgba(199, 146, 255, .02) 60%), rgba(255, 255, 255, .02); border-color: rgba(199, 146, 255, .35); }
+.weekly .daily-cal small { background: #c792ff; }
+.weekly .daily-kicker { color: #c792ff; }
+.weekly .daily-btn { border-color: rgba(199, 146, 255, .5); }
+.weekly .daily-btn:hover { background: rgba(199, 146, 255, .14); }
 .board-daily { margin: 4px 0 2px; padding: 8px 12px; font-size: 13px; line-height: 1.4; background: rgba(184, 240, 74, .08); border: 1px solid rgba(184, 240, 74, .25); border-radius: 10px; }
 .board-daily[hidden] { display: none; }
 

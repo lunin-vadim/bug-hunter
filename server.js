@@ -163,6 +163,8 @@ app.post('/api/score', requireAuth, asyncH(async (req, res) => {
 
   // результат засчитывается в задачу дня, только если клиент прислал сегодняшнюю дату (по UTC сервера)
   const dailyDate = req.body?.daily === dailyMod.todayUTC() ? req.body.daily : null;
+  // и в недельный челлендж — только с текущей неделей
+  const weeklyKey = !dailyDate && req.body?.weekly === dailyMod.isoWeek() ? req.body.weekly : null;
 
   const client = await pool.connect();
   try {
@@ -181,11 +183,14 @@ app.post('/api/score', requireAuth, asyncH(async (req, res) => {
     const dailyPrevBest = dailyDate
       ? (await client.query('SELECT MAX(score) AS s FROM games WHERE user_id = $1 AND daily = $2', [req.user.id, dailyDate])).rows[0].s
       : null;
+    const weeklyPrevBest = weeklyKey
+      ? (await client.query('SELECT MAX(score) AS s FROM games WHERE user_id = $1 AND weekly = $2', [req.user.id, weeklyKey])).rows[0].s
+      : null;
     const prev = ach.statsFromRow(cur);
     const next = ach.applyGame(prev, { kills, durationMs, extra });
     await client.query(
-      'INSERT INTO games (user_id, kills, score, duration_ms, best_combo, wave, extra, daily) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-      [req.user.id, kills, score, durationMs, extra.bestCombo, extra.wave, JSON.stringify({ livesLost: extra.livesLost, bonuses: extra.bonuses, maxBombKills: extra.maxBombKills }), dailyDate],
+      'INSERT INTO games (user_id, kills, score, duration_ms, best_combo, wave, extra, daily, weekly) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+      [req.user.id, kills, score, durationMs, extra.bestCombo, extra.wave, JSON.stringify({ livesLost: extra.livesLost, bonuses: extra.bonuses, maxBombKills: extra.maxBombKills }), dailyDate, weeklyKey],
     );
     const { rows } = await client.query(
       `UPDATE users SET total_kills = $2, best_score = GREATEST(best_score, $3), games_played = $4,
@@ -203,11 +208,14 @@ app.post('/api/score', requireAuth, asyncH(async (req, res) => {
     let dailyResult = null;
     if (dailyDate) {
       const best = Math.max(score, dailyPrevBest ?? 0);
-      const rank = (await client.query(
-        'SELECT COUNT(*) + 1 AS rank FROM (SELECT user_id, MAX(score) AS s FROM games WHERE daily = $1 GROUP BY user_id) b WHERE b.s > $2',
-        [dailyDate, best],
-      )).rows[0].rank;
-      dailyResult = { date: dailyDate, rank: Number(rank), best, isBest: dailyPrevBest === null || score > dailyPrevBest };
+      const rank = await challengeRank(client, 'daily', dailyDate, best);
+      dailyResult = { date: dailyDate, rank, best, isBest: dailyPrevBest === null || score > dailyPrevBest };
+    }
+    let weeklyResult = null;
+    if (weeklyKey) {
+      const best = Math.max(score, weeklyPrevBest ?? 0);
+      const rank = await challengeRank(client, 'weekly', weeklyKey, best);
+      weeklyResult = { week: weeklyKey, rank, best, isBest: weeklyPrevBest === null || score > weeklyPrevBest };
     }
 
     const levelBefore = ach.rankIndex(prev.totalKills);
@@ -217,6 +225,7 @@ app.post('/api/score', requireAuth, asyncH(async (req, res) => {
       newAchievements: ach.ACHIEVEMENTS.filter((a) => fresh.includes(a.code)).map(({ code, icon, name, desc }) => ({ code, icon, name, desc })),
       // повышение ранга: значок и награды, чтобы клиент показал праздничную карточку
       daily: dailyResult,
+      weekly: weeklyResult,
       newRank: levelAfter > levelBefore ? { ...ach.tierInfo(next.totalKills), unlocks: ach.RANK_UNLOCKS[levelAfter] } : null,
     });
   } catch (e) {
@@ -278,15 +287,27 @@ app.get('/api/leaderboard', asyncH(async (req, res) => {
   });
 }));
 
-app.get('/api/daily', asyncH(async (req, res) => {
-  const date = dailyMod.todayUTC();
-  // лучший результат каждого игрока за сегодня, топ-20
+/* ---------- Задача дня и недельный челлендж: общий рейтинг по колонке games.daily / games.weekly ---------- */
+const CHALLENGE_COLS = new Set(['daily', 'weekly']); // имя колонки подставляется в SQL — только из этого списка
+
+async function challengeRank(db, col, key, score) {
+  if (!CHALLENGE_COLS.has(col)) { throw new Error('bad challenge column'); }
+  const { rows } = await db.query(
+    `SELECT COUNT(*) + 1 AS rank FROM (SELECT user_id, MAX(score) AS s FROM games WHERE ${col} = $1 GROUP BY user_id) b WHERE b.s > $2`,
+    [key, score],
+  );
+  return Number(rows[0].rank);
+}
+
+/** Топ-20 (лучшая попытка каждого игрока) и место текущего игрока */
+async function challengeBoard(col, key, user) {
+  if (!CHALLENGE_COLS.has(col)) { throw new Error('bad challenge column'); }
   const { rows: best } = await pool.query(
     `SELECT user_id, score, kills, wave FROM (
        SELECT DISTINCT ON (user_id) user_id, score, kills, wave, created_at
-       FROM games WHERE daily = $1 ORDER BY user_id, score DESC, created_at ASC
+       FROM games WHERE ${col} = $1 ORDER BY user_id, score DESC, created_at ASC
      ) t ORDER BY score DESC, created_at ASC LIMIT 20`,
-    [date],
+    [key],
   );
   const users = new Map();
   if (best.length) {
@@ -294,31 +315,31 @@ app.get('/api/daily', asyncH(async (req, res) => {
     rows.forEach((u) => users.set(u.id, u));
   }
   let me = null;
-  if (req.user) {
+  if (user) {
     const mine = (await pool.query(
-      'SELECT score, kills, wave FROM games WHERE user_id = $1 AND daily = $2 ORDER BY score DESC, created_at ASC LIMIT 1',
-      [req.user.id, date],
+      `SELECT score, kills, wave FROM games WHERE user_id = $1 AND ${col} = $2 ORDER BY score DESC, created_at ASC LIMIT 1`,
+      [user.id, key],
     )).rows[0];
-    if (mine) {
-      const rank = (await pool.query(
-        'SELECT COUNT(*) + 1 AS rank FROM (SELECT user_id, MAX(score) AS s FROM games WHERE daily = $1 GROUP BY user_id) b WHERE b.s > $2',
-        [date, mine.score],
-      )).rows[0].rank;
-      me = { rank: Number(rank), score: mine.score, kills: mine.kills, wave: mine.wave };
-    }
+    if (mine) { me = { rank: await challengeRank(pool, col, key, mine.score), score: mine.score, kills: mine.kills, wave: mine.wave }; }
   }
-  res.json({
-    date,
-    modifier: dailyMod.modifierFor(date),
-    top: best.map((b, i) => {
-      const u = users.get(b.user_id);
-      return {
-        rank: i + 1, username: u.username, avatar: u.avatar, color: u.color, status: u.status, title: titleOf(u).name,
-        tier: ach.tierInfo(u.total_kills), score: b.score, kills: b.kills, wave: b.wave,
-      };
-    }),
-    me,
+  const top = best.map((b, i) => {
+    const u = users.get(b.user_id);
+    return {
+      rank: i + 1, username: u.username, avatar: u.avatar, color: u.color, status: u.status, title: titleOf(u).name,
+      tier: ach.tierInfo(u.total_kills), score: b.score, kills: b.kills, wave: b.wave,
+    };
   });
+  return { top, me };
+}
+
+app.get('/api/daily', asyncH(async (req, res) => {
+  const date = dailyMod.todayUTC();
+  res.json({ date, modifier: dailyMod.modifierFor(date), ...(await challengeBoard('daily', date, req.user)) });
+}));
+
+app.get('/api/weekly', asyncH(async (req, res) => {
+  const week = dailyMod.isoWeek();
+  res.json({ week, endsAt: dailyMod.weekEndsAt(), modifiers: dailyMod.weeklyModifiersFor(week), ...(await challengeBoard('weekly', week, req.user)) });
 }));
 
 app.use(express.static(path.join(__dirname, 'public')));
