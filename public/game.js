@@ -280,6 +280,7 @@ function newRunStats() {
   return {
     livesLost: 0 /* в половинках сердца */, maxBombKills: 0, crocAtOneLife: false, bonuses: { golden: 0, bomb: 0, freeze: 0, croc: 0 },
     bossKills: 0, bossClean: 0, bossByBot: 0, autotestPicks: 0, autotestKills: 0, // для ачивок про босса и автотест
+    waveScores: [], lastCause: null, // для итогов партии: счёт на конец каждой волны и кто последним прорвался
   };
 }
 let lastTs = 0;
@@ -762,6 +763,7 @@ function startGame(m = mode) {
   resetGame();
   phase = 'playing';
   overlay.hidden = true;
+  summaryBox.hidden = true;
   el.saveStatus.hidden = true;
   hud.hidden = false;
   lastTs = performance.now();
@@ -795,6 +797,8 @@ function endGame() {
   el.help.hidden = true;
   el.stats.textContent = `Очки: ${score} · Убито: ${kills} · Лучшее комбо: ${bestCombo} · Волна: ${wave} · ${daily ? 'Лучший сегодня' : 'Рекорд'}: ${daily ? dailyBestToday() : best}`;
   el.start.textContent = 'Ещё раз';
+  run.waveScores.push(score);
+  renderSummary();
   overlay.hidden = false;
   updateHud();
   renderDaily();
@@ -809,6 +813,7 @@ function setPaused(p) {
     el.text.textContent = 'Игра приостановлена.';
     el.help.hidden = true;
     el.stats.textContent = '';
+    summaryBox.hidden = true;
     el.start.textContent = 'Продолжить';
     overlay.hidden = false;
     renderDaily();
@@ -823,7 +828,7 @@ function setPaused(p) {
   }
 }
 
-function loseLife(x = W / 2) {
+function loseLife(x = W / 2, cause = null) {
   if (shield > 0) { // щит гасит прорыв: сердце не тратится, комбо не сбрасывается
     shield -= 1;
     burst(x, prodY(), '#7fd8ff', 12);
@@ -834,6 +839,7 @@ function loseLife(x = W / 2) {
   }
   lives -= 1;
   run.livesLost += 1;
+  if (cause) { run.lastCause = { emoji: cause, wave }; }
   breakCombo();
   shake = 0.35;
   flash = 0.35;
@@ -1227,6 +1233,7 @@ function updateBoss(dt, pace) {
   if (boss.y + boss.size * 0.35 >= line || (boss.type === 'deadline' && boss.timeLeft <= 0)) {
     const bx = boss.x;
     const what = boss.type === 'deadline' ? 'Дедлайн сорван' : 'Босс прорвался';
+    const bossEmoji = boss.emoji;
     if (boss.type === 'deadline') { burst(bx, boss.y, '#ff5470', 40); }
     addSplat(bx, line);
     boss = null;
@@ -1234,7 +1241,7 @@ function updateBoss(dt, pace) {
     else if (shield > 0) { showBanner(`${what}! Щит поглотил часть`, '#ff5470'); }
     else { showBanner(`${what}! −2 сердца`, '#ff5470'); }
     for (let i = 0; i < BOSS_REACH_DAMAGE; i++) {
-      loseLife(bx);
+      loseLife(bx, bossEmoji);
       if (phase !== 'playing') { return false; }
     }
   }
@@ -1358,6 +1365,7 @@ function update(dt) {
   elapsed += ms;
 
   if (elapsed >= nextWaveAt) {
+    run.waveScores.push(score);
     wave += 1;
     nextWaveAt += WAVE_EVERY_MS;
     boostLeft = WAVE_BOOST_MS;
@@ -1409,7 +1417,7 @@ function update(dt) {
       bugs = bugs.filter((x) => x.id !== b.id);
       if (THREATS.has(b.behavior)) {
         addSplat(b.x, line);
-        loseLife(b.x);
+        loseLife(b.x, b.emoji);
         if (phase !== 'playing') { return; }
       }
     }
@@ -2348,6 +2356,137 @@ function finishPerk(p) {
   updateHud();
   music.sync();
 }
+
+/* ---------- Итоги партии ---------- */
+const summaryBox = document.getElementById('summary');
+const CAUSE_NAMES = {
+  '🐛': 'гусеница', '🐞': 'божья коровка', '🪲': 'жук', '🪳': 'таракан', '🐝': 'золотой баг', '🦟': 'комар', '🕷️': 'паук',
+  '🦂': 'скорпион', '🦗': 'flaky-сверчок', '🐜': 'регрессия', '🦠': 'утечка памяти', '🪰': 'race condition', '👻': 'гейзенбаг',
+  '👾': 'баг-босс', '🗿': 'легаси-монолит', '⏰': 'дедлайн',
+};
+
+/** Лучшие моменты партии — короткие плашки */
+function runMoments() {
+  const list = [];
+  if (bestCombo >= 5) { list.push(`🔥 Серия ${bestCombo}`); }
+  if (run.bossKills) { list.push(`👾 Боссов: ${run.bossKills}`); }
+  if (run.maxBombKills >= 3) { list.push(`💣 ${run.maxBombKills} за один взрыв`); }
+  if (run.autotestKills) { list.push(`🤖 Бот устранил ${run.autotestKills}`); }
+  const gains = run.waveScores.map((v, i) => v - (run.waveScores[i - 1] || 0));
+  const top = gains.indexOf(Math.max(...gains));
+  if (gains.length > 1 && gains[top] > 0) { list.push(`📈 Лучшая волна: ${top + 1} (+${gains[top]})`); }
+  return list;
+}
+
+/** График: счёт на конец каждой волны */
+function drawScoreChart(c, pts, w, h, color = BRAND) {
+  const g = c.getContext('2d');
+  const max = Math.max(1, ...pts);
+  const pad = 6;
+  const xs = (i) => pad + (pts.length > 1 ? (i / (pts.length - 1)) * (w - pad * 2) : (w - pad * 2) / 2);
+  const ys = (v) => h - pad - (v / max) * (h - pad * 2);
+  g.lineWidth = Math.max(2, h / 40);
+  g.lineJoin = 'round';
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, 'rgba(184, 240, 74, 0.35)');
+  grad.addColorStop(1, 'rgba(184, 240, 74, 0)');
+  g.beginPath();
+  g.moveTo(xs(0), h - pad);
+  pts.forEach((v, i) => g.lineTo(xs(i), ys(v)));
+  g.lineTo(xs(pts.length - 1), h - pad);
+  g.closePath();
+  g.fillStyle = grad;
+  g.fill();
+  g.beginPath();
+  pts.forEach((v, i) => (i ? g.lineTo(xs(i), ys(v)) : g.moveTo(xs(i), ys(v))));
+  g.strokeStyle = color;
+  g.stroke();
+  g.fillStyle = color;
+  pts.forEach((v, i) => { g.beginPath(); g.arc(xs(i), ys(v), g.lineWidth * 1.2, 0, Math.PI * 2); g.fill(); });
+}
+
+function renderSummary() {
+  const cv = document.getElementById('summary-chart');
+  const h = 84;
+  summaryBox.hidden = false; // сначала показываем, чтобы у холста был размер
+  const cw = cv.clientWidth || 360;
+  cv.width = Math.round(cw * DPR);
+  cv.height = Math.round(h * DPR);
+  const g = cv.getContext('2d');
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  g.clearRect(0, 0, cw, h);
+  drawScoreChart(cv, [0, ...run.waveScores], cw, h);
+  const c = run.lastCause;
+  document.getElementById('summary-cause').textContent = c
+    ? `Последним прорвался ${c.emoji} ${CAUSE_NAMES[c.emoji] || 'баг'} на ${c.wave}-й волне`
+    : '';
+  const ul = document.getElementById('summary-moments');
+  ul.textContent = '';
+  for (const m of runMoments()) {
+    const li = document.createElement('li');
+    li.textContent = m;
+    ul.append(li);
+  }
+}
+
+/** Картинка 1200×630 для соцсетей и мессенджеров */
+function makeShareCard() {
+  const cw = 1200, ch = 630;
+  const cv = document.createElement('canvas');
+  cv.width = cw; cv.height = ch;
+  const g = cv.getContext('2d');
+  const bg = g.createLinearGradient(0, 0, 0, ch);
+  bg.addColorStop(0, '#0b0d12');
+  bg.addColorStop(1, '#1a1222');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, cw, ch);
+  g.fillStyle = BRAND;
+  g.font = `700 34px ${FONT_DISPLAY}`;
+  g.textBaseline = 'top';
+  g.fillText('🐛 Bug Hunter', 64, 56);
+  g.fillStyle = '#9aa4b5';
+  g.font = `600 26px ${FONT_UI}`;
+  const daily = mode === 'daily' && dailyInfo;
+  g.fillText(daily ? `Задача дня · ${dailyInfo.date} · ${dailyInfo.modifier.icon} ${dailyInfo.modifier.name}` : 'Охота на багов перед релизом', 64, 108);
+  g.fillStyle = '#ffffff';
+  g.font = `700 120px ${FONT_DISPLAY}`;
+  g.fillText(String(score), 64, 160);
+  g.fillStyle = '#ffd166';
+  g.font = `600 30px ${FONT_UI}`;
+  g.fillText(`очков · волна ${wave} · убито ${kills} · серия ${bestCombo}`, 64, 300);
+  const moments = runMoments().filter((m) => !m.startsWith('🔥')).slice(0, 3); // серия уже есть в строке выше
+  g.fillStyle = '#e8ecf5';
+  g.font = `500 26px ${FONT_UI}`;
+  moments.forEach((m, i) => g.fillText(m, 64, 360 + i * 40));
+  g.save();
+  g.translate(64, 500);
+  drawScoreChart(cv, [0, ...run.waveScores], cw - 128, 90);
+  g.restore();
+  return cv;
+}
+
+async function shareResult() {
+  const text = `Bug Hunter: ${score} очков, волна ${wave}, серия ${bestCombo}`;
+  const blob = await new Promise((r) => makeShareCard().toBlob(r, 'image/png'));
+  const file = blob && new File([blob], 'bug-hunter.png', { type: 'image/png' });
+  try {
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], text });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') { return; }
+  }
+  if (blob) { // на десктопе — просто скачиваем картинку
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'bug-hunter.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  try { await navigator.clipboard.writeText(text); toast('📋', 'Картинка сохранена', 'Текст результата скопирован в буфер'); } catch { toast('🖼️', 'Картинка сохранена', text); }
+}
+document.getElementById('btn-share').addEventListener('click', shareResult);
 
 /** Всплывающее уведомление (контейнер #toasts в index.html) */
 function toast(icon, title, text) {
