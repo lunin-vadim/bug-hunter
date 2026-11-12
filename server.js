@@ -29,7 +29,25 @@ const MAX_KILLS_PER_SEC = 12;
 const MAX_SCORE_PER_KILL = 40;
 const MAX_KILLS_BASE = 60; // запас на массовые убийства (Рефакторинг, Hotfix)
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  max: Number(process.env.PG_POOL_MAX) || 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000, // при перегрузке БД запрос падает с ошибкой, а не висит бесконечно
+});
+// ошибка простаивающего соединения (рестарт или обслуживание БД) не должна ронять процесс
+pool.on('error', (e) => console.error('PostgreSQL: ошибка простаивающего соединения:', e.message));
+
+/** Короткий кэш общих рейтингов: при наплыве игроков топ-20 не пересчитывается на каждый запрос */
+const BOARD_CACHE_MS = 10000;
+const boardCache = new Map();
+async function cached(key, load) {
+  const hit = boardCache.get(key);
+  if (hit && Date.now() - hit.at < BOARD_CACHE_MS) { return hit.value; }
+  const value = await load();
+  boardCache.set(key, { at: Date.now(), value });
+  return value;
+}
 const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
@@ -204,6 +222,7 @@ app.post('/api/score', requireAuth, asyncH(async (req, res) => {
       await client.query('INSERT INTO user_achievements (user_id, code) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.user.id, code]);
     }
     await client.query('COMMIT');
+    boardCache.clear(); // свой результат игрок должен увидеть в рейтинге сразу
 
     let dailyResult = null;
     if (dailyDate) {
@@ -263,9 +282,9 @@ const LEADERBOARD_SORTS = {
 app.get('/api/leaderboard', asyncH(async (req, res) => {
   const key = Object.hasOwn(LEADERBOARD_SORTS, req.query.sort) ? req.query.sort : 'kills';
   const sort = LEADERBOARD_SORTS[key];
-  const { rows } = await pool.query(
+  const rows = await cached(`board:${key}`, async () => (await pool.query(
     `SELECT ${USER_COLS} FROM users WHERE games_played > 0 ORDER BY ${sort.order} LIMIT 20`,
-  );
+  )).rows);
   let me = null;
   if (req.user && req.user.games_played > 0) {
     const r = await pool.query(
@@ -302,18 +321,21 @@ async function challengeRank(db, col, key, score) {
 /** Топ-20 (лучшая попытка каждого игрока) и место текущего игрока */
 async function challengeBoard(col, key, user) {
   if (!CHALLENGE_COLS.has(col)) { throw new Error('bad challenge column'); }
-  const { rows: best } = await pool.query(
-    `SELECT user_id, score, kills, wave FROM (
-       SELECT DISTINCT ON (user_id) user_id, score, kills, wave, created_at
-       FROM games WHERE ${col} = $1 ORDER BY user_id, score DESC, created_at ASC
-     ) t ORDER BY score DESC, created_at ASC LIMIT 20`,
-    [key],
-  );
-  const users = new Map();
-  if (best.length) {
-    const { rows } = await pool.query(`SELECT ${USER_COLS} FROM users WHERE id = ANY($1::int[])`, [best.map((b) => b.user_id)]);
-    rows.forEach((u) => users.set(u.id, u));
-  }
+  const { best, users } = await cached(`${col}:${key}`, async () => {
+    const { rows: top } = await pool.query(
+      `SELECT user_id, score, kills, wave FROM (
+         SELECT DISTINCT ON (user_id) user_id, score, kills, wave, created_at
+         FROM games WHERE ${col} = $1 ORDER BY user_id, score DESC, created_at ASC
+       ) t ORDER BY score DESC, created_at ASC LIMIT 20`,
+      [key],
+    );
+    const byId = new Map();
+    if (top.length) {
+      const { rows } = await pool.query(`SELECT ${USER_COLS} FROM users WHERE id = ANY($1::int[])`, [top.map((b) => b.user_id)]);
+      rows.forEach((u) => byId.set(u.id, u));
+    }
+    return { best: top, users: byId };
+  });
   let me = null;
   if (user) {
     const mine = (await pool.query(

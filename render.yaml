@@ -1,11 +1,15 @@
+# Render Blueprint. Регион существующих сервиса и базы задан при создании и здесь не меняется
+# (по умолчанию oregon); чтобы переехать ближе к игрокам, их нужно пересоздать.
 services:
   - type: web
     name: bug-hunter
     runtime: node
-    plan: free
-    buildCommand: npm install
+    # 0.5 CPU / 512 MB, не засыпает (на free сервис спит после 15 мин без запросов и просыпается ~минуту)
+    plan: 0.5c-512mb
+    buildCommand: npm ci --omit=dev
     startCommand: node server.js
-    healthCheckPath: /
+    # проверяет и процесс, и соединение с БД; неудачный деплой не заменит рабочий
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_ENV
         value: production
@@ -15,7 +19,11 @@ services:
         fromDatabase:
           name: bug-hunter-db
           property: connectionString
+      # соединений с БД на инстанс; у 0.1c-256mb лимит 100 на всю базу
+      - key: PG_POOL_MAX
+        value: '20'
 
 databases:
   - name: bug-hunter-db
-    plan: free
+    # платный план: free-база удаляется через 30 дней (+14 дней отсрочки) вместе с данными
+    plan: 0.1c-256mb
