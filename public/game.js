@@ -82,7 +82,11 @@ const EVENTS = {
   rain: { icon: '🌧️', name: 'Дождь багов', ms: 7000, color: '#7fd8ff' },
   gold: { icon: '🐝', name: 'Золотая лихорадка', ms: 8000, color: '#ffd166' },
   wall: { icon: '🧱', name: 'Стена багов', ms: 0, color: '#ff9f43' },
+  friday: { icon: '🚀', name: 'Пятничный деплой', ms: 10000, color: '#ff5470', minWave: 4 },
+  review: { icon: '👀', name: 'Код-ревью', ms: 8000, color: '#5be3a5' },
 };
+const FRIDAY_LIFT = 0.13;   // «Пятничный деплой»: на какую долю высоты поднимается прод-линия
+const FRIDAY_RISE_S = 2.5;  // и за сколько секунд (плавно, чтобы успеть отреагировать)
 const BANNER_MS = 2000;
 const SPLAT_MS = 400;
 const POPUP_MS = 700;
@@ -546,7 +550,8 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 
-const prodY = () => H - Math.max(36, 40 * S);
+let prodLift = 0;
+const prodY = () => H - Math.max(36, 40 * S) - prodLift;
 
 /* ---------- Спрайты эмодзи (кэш, как в оригинале) ---------- */
 const spriteCache = new Map();
@@ -742,7 +747,7 @@ function resetGame() {
   elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastRefactorAt = -Infinity;
   slowLeft = 0; countdownLeft = 0; sniperPulseAt = 0;
   boss = null; bossesDefeated = 0; bossesMet = 0; shield = 0;
-  ev = null; nextEventAt = dayMod() === 'storm' ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null;
+  ev = null; nextEventAt = dayMod() === 'storm' ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null; prodLift = 0;
   autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0; autotestSpan = AUTOTEST_MS; lastAutotestAt = -Infinity;
   perks = {}; perkPending = false; closePerks(); renderPerkStrip();
   hintQueue = []; hintAt = -Infinity;
@@ -1002,7 +1007,7 @@ function spawnWall() {
 }
 
 function startEvent() {
-  const types = Object.keys(EVENTS).filter((t) => t !== lastEvent);
+  const types = Object.keys(EVENTS).filter((t) => t !== lastEvent && wave >= (EVENTS[t].minWave || 1));
   const type = types[Math.floor(rng.spawn() * types.length)];
   const def = EVENTS[type];
   lastEvent = type;
@@ -1016,6 +1021,10 @@ function updateEvents(ms) {
     ev.left -= ms;
     if (ev.left <= 0) { ev = null; }
   }
+  // прод-линия плавно поднимается на время «Пятничного деплоя» и так же плавно возвращается
+  const lift = ev && ev.type === 'friday' ? H * FRIDAY_LIFT : 0;
+  const step = (H * FRIDAY_LIFT * ms) / (FRIDAY_RISE_S * 1000);
+  prodLift = prodLift < lift ? Math.min(lift, prodLift + step) : Math.max(lift, prodLift - step * 2);
   if (!ev && !boss && (wave >= 2 || dayMod() === 'storm') && elapsed >= nextEventAt) {
     startEvent();
     const gap = dayMod() === 'storm' ? STORM_GAP_MS : EVENT_GAP_MS;
@@ -1262,6 +1271,11 @@ function handleClick(px, py) {
     sfx.bossHit();
     damageBoss(1);
     updateHud();
+    return;
+  }
+  if (!target && ev && ev.type === 'review') { // на ревью промах не считается
+    addPopup(px, py, 'не считается', '#5be3a5');
+    sfx.miss();
     return;
   }
   if (!target) {
