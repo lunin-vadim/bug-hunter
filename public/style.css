@@ -395,12 +395,24 @@ button.danger-btn:hover { background: rgba(255, 84, 112, .15); }
 .foot-item[open] summary::after { content: ' ▴'; }
 .foot-item summary:hover { color: #fff; }
 .foot-panel { padding: 8px 0 2px; }
-.foot-panel ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.foot-panel li { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: rgba(255, 255, 255, .035); border-radius: 10px; font-size: 13px; font-weight: 600; line-height: 1.25; }
-.foot-panel li:last-child:nth-child(odd) { grid-column: 1 / -1; }
-.foot-panel li small { display: block; margin-top: 1px; font-size: 11.5px; font-weight: 400; color: var(--muted); }
-.foot-panel .ic { flex: none; display: grid; place-items: center; min-width: 32px; font-size: 16px; white-space: nowrap; }
-.foot-panel .hint.keys { margin-top: 10px; }
+.foot-link { padding: 4px 0; font: inherit; font-size: 13px; color: var(--muted); background: none; border: 0; cursor: pointer; }
+.foot-link:hover { color: #fff; }
+
+/* ---------- Правила: панель «Как играть» ---------- */
+.rules-tabs { overflow-x: auto; scrollbar-width: none; }
+.rules-tabs::-webkit-scrollbar { display: none; }
+.rules-tabs .tab { flex: 1 0 auto; padding: 8px 10px; font-size: 13px; }
+.rules-pane[hidden] { display: none; }
+.rules-pane h3 { margin: 18px 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--brand); }
+.rules-pane > p { margin: 10px 0 0; font-size: 14px; line-height: 1.5; color: #d4d9e4; }
+.rules-pane > p b { color: #fff; }
+.rule-list { list-style: none; display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; padding: 0; }
+.rule-list li { display: flex; align-items: flex-start; gap: 12px; padding: 9px 12px; background: rgba(255, 255, 255, .035); border-radius: 12px; }
+.rule-list .ic { flex: none; width: 28px; padding-top: 1px; font-size: 20px; line-height: 1.2; text-align: center; }
+.rule-list li > span:last-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rule-list b { font-size: 14px; }
+.rule-list small { font-size: 13px; line-height: 1.45; color: var(--muted); }
+.rules-pane .hint.keys { margin-top: 10px; font-size: 13px; line-height: 2; }
 .board-daily { margin: 4px 0 2px; padding: 8px 12px; font-size: 13px; line-height: 1.4; background: rgba(184, 240, 74, .08); border: 1px solid rgba(184, 240, 74, .25); border-radius: 10px; }
 .board-daily[hidden] { display: none; }
 
@@ -535,7 +547,6 @@ body:has(#overlay:not([hidden])) .perk-strip { display: none; }
   .overlay { padding: 64px 12px 16px; }
   .card { padding: 20px 16px 16px; border-radius: 16px; }
   .card h1 { font-size: 20px; }
-  .foot-panel ul { grid-template-columns: 1fr; }
   .mode { padding: 10px 12px; }
   .mode-desc { display: none; } /* на узком экране хватает названия мутатора; описание — баннером в начале партии */
   /* во время игры верх — одна тонкая строка: счёт, комбо, жизни слева и пауза справа */

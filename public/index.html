@@ -136,29 +136,7 @@
 
       <!-- второстепенное: открывается по нажатию -->
       <div class="card-foot">
-        <details id="ov-help" class="foot-item" name="foot">
-          <summary>Как играть</summary>
-          <div class="foot-panel">
-            <ul>
-              <li><span class="ic">🐛 🐞 🪲</span><span>Обычные баги<small>у 🪲 два хп</small></span></li>
-              <li><span class="ic">🪳</span><span>Делится<small>на смерти — на мелких</small></span></li>
-              <li><span class="ic">🐝</span><span>Золотой<small>бонус очков</small></span></li>
-              <li><span class="ic">🐌</span><span>Приманка<small>клик снимает очки</small></span></li>
-              <li><span class="ic">🧹</span><span>Рефакторинг<small>чистит нижнюю половину, +1 жизнь</small></span></li>
-              <li><span class="ic">🧊</span><span>Code freeze<small>баги медленнее на 4 с</small></span></li>
-              <li><span class="ic">💣</span><span>Hotfix<small>взрыв вокруг</small></span></li>
-              <li><span class="ic">🤖</span><span>Автотест<small>редкий: 6 с сам бьёт ближних багов</small></span></li>
-              <li><span class="ic">🧲</span><span>Магнит<small>5 с все баги летят к курсору — выкоси кучу</small></span></li>
-              <li><span class="ic">👾 🗿 ⏰</span><span>Боссы<small>5-я волна и каждая 4-я, по очереди: баг-босс, монолит в броне, дедлайн с таймером</small></span></li>
-              <li><span class="ic">🛡️ 🔧</span><span>Укрепления<small>падают во время босса: щит и патч</small></span></li>
-              <li><span class="ic">🎯 🧮</span><span>Перки<small>каждые 2 волны: выбери 1 из 3 улучшений</small></span></li>
-              <li><span class="ic">🦟 🕷️ 🦂</span><span>Новые жуки<small>приходят с волнами: зигзаг, рывок, броня</small></span></li>
-              <li><span class="ic">🦗 🐜 🦠</span><span>Поздние волны<small>прыгает вбок · возвращается · растёт</small></span></li>
-              <li><span class="ic">🪰 👻</span><span>Race и гейзенбаг<small>пару бей вместе · у курсора исчезает</small></span></li>
-            </ul>
-            <p class="hint keys"><kbd>Space</kbd> старт · <kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>F</kbd> экран · <kbd>M</kbd> звук · <kbd>N</kbd> музыка · <kbd>L</kbd> рейтинг</p>
-          </div>
-        </details>
+        <button id="btn-rules" class="foot-link" type="button" title="Правила игры (H)">Как играть</button>
         <details id="audio" class="foot-item" name="foot">
           <summary>Громкость</summary>
           <div class="foot-panel">
@@ -190,6 +168,148 @@
         <tbody id="board-body"></tbody>
       </table>
       <p id="board-me" class="stats small" hidden></p>
+    </div>
+  </aside>
+
+  <aside id="rules" class="drawer drawer-left rules" aria-labelledby="rules-title" inert>
+    <header class="drawer-head">
+      <h2 id="rules-title">Как играть</h2>
+      <button id="btn-rules-close" class="icon-btn" aria-label="Закрыть правила">×</button>
+    </header>
+    <div class="tabs rules-tabs" role="tablist" aria-label="Разделы правил">
+      <button class="tab active" role="tab" aria-selected="true" data-rules="basics">Основы</button>
+      <button class="tab" role="tab" aria-selected="false" data-rules="bugs">Баги</button>
+      <button class="tab" role="tab" aria-selected="false" data-rules="bonuses">Бонусы</button>
+      <button class="tab" role="tab" aria-selected="false" data-rules="bosses">Боссы</button>
+      <button class="tab" role="tab" aria-selected="false" data-rules="perks">Перки</button>
+      <button class="tab" role="tab" aria-selected="false" data-rules="events">События</button>
+      <button class="tab" role="tab" aria-selected="false" data-rules="modes">Режимы</button>
+    </div>
+    <div class="drawer-body rules-body">
+      <section id="rules-basics" class="rules-pane" role="tabpanel">
+        <h3>Цель</h3>
+        <p>Баги сверху ползут к красной линии <b>PRODUCTION</b>. Кликайте или тапайте по ним, пока они её не пересекли. Партия длится, пока есть сердца.</p>
+        <h3>Сердца</h3>
+        <ul class="rule-list">
+          <li><span class="ic">❤️</span><span><b>5 сердец на старте</b><small>С мутатором «Хрупкий прод» (задача дня или неделя) — 3.</small></span></li>
+          <li><span class="ic">💔</span><span><b>Баг дошёл до прода</b><small>−½ сердца и серия сбрасывается. Бонусы и приманки, дошедшие до линии, просто исчезают.</small></span></li>
+          <li><span class="ic">🛡️</span><span><b>Щит</b><small>Если на линии горит голубая полоса, прорыв гасит заряд щита, а не сердце.</small></span></li>
+        </ul>
+        <h3>Очки и серия</h3>
+        <ul class="rule-list">
+          <li><span class="ic">🎯</span><span><b>Очки за бага</b><small>У каждого вида своя цена: от 1 (🐛) до 8 (🦂).</small></span></li>
+          <li><span class="ic">➕</span><span><b>Бонус серии</b><small>С 5‑го попадания подряд +1 очко за бага, с 10‑го +2, с 15‑го +3.</small></span></li>
+          <li><span class="ic">🔥</span><span><b>«Азарт»</b><small>Каждые 10 попаданий подряд — множитель очков: ×2 с 10‑й серии, ×3 с 20‑й.</small></span></li>
+          <li><span class="ic">✖️</span><span><b>Что рвёт серию</b><small>Промах мимо бага, клик по приманке 🐌 и баг, дошедший до прода.</small></span></li>
+          <li><span class="ic">🔨</span><span><b>Броня</b><small>У некоторых багов несколько хп: «крак!» — значит, нужно ещё попадание.</small></span></li>
+        </ul>
+        <h3>Волны</h3>
+        <ul class="rule-list">
+          <li><span class="ic">🌊</span><span><b>Каждые 30 секунд</b><small>Новая волна: баги быстрее (+10% за волну, до ×2,2), спавн чаще, на 5 секунд — всплеск.</small></span></li>
+          <li><span class="ic">🆕</span><span><b>Новые виды</b><small>Почти каждая волна до 12‑й приносит новых багов или бонусы — баннер подскажет, что именно.</small></span></li>
+          <li><span class="ic">💡</span><span><b>Подсказки</b><small>Когда объект встречается впервые, всплывает карточка с тем, что он делает.</small></span></li>
+        </ul>
+        <h3>Управление</h3>
+        <p class="hint keys"><kbd>Space</kbd>/<kbd>Enter</kbd> старт · <kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>F</kbd> полный экран · <kbd>M</kbd> звуки · <kbd>N</kbd> музыка · <kbd>V</kbd> тряска и вспышки · <kbd>L</kbd> рейтинг · <kbd>C</kbd> кабинет · <kbd>H</kbd> правила. После паузы — отсчёт 3-2-1.</p>
+      </section>
+      <section id="rules-bugs" class="rules-pane" role="tabpanel" hidden>
+        <p>В скобках — с какой волны появляется.</p>
+        <ul class="rule-list">
+          <li><span class="ic">🐛</span><span><b>Гусеница (1)</b><small>1 очко, медленная.</small></span></li>
+          <li><span class="ic">🐞</span><span><b>Божья коровка (1)</b><small>2 очка, быстрая.</small></span></li>
+          <li><span class="ic">🪲</span><span><b>Жук (2)</b><small>3 очка, 2 хп.</small></span></li>
+          <li><span class="ic">🪳</span><span><b>Таракан (3)</b><small>4 очка, 2 хп. На смерти делится на двух мелких гусениц.</small></span></li>
+          <li><span class="ic">🦟</span><span><b>Комар (4)</b><small>3 очка, летит широким зигзагом.</small></span></li>
+          <li><span class="ic">🦗</span><span><b>Flaky-сверчок (5)</b><small>3 очка, время от времени прыгает вбок.</small></span></li>
+          <li><span class="ic">🕷️</span><span><b>Паук (6)</b><small>5 очков. Ниже трети экрана делает рывок и светится красным.</small></span></li>
+          <li><span class="ic">🐜</span><span><b>Регрессия (7)</b><small>3 очка. После смерти один раз возвращается выше по полю.</small></span></li>
+          <li><span class="ic">🦂</span><span><b>Скорпион (8)</b><small>8 очков, 4 хп.</small></span></li>
+          <li><span class="ic">🦠</span><span><b>Утечка памяти (9)</b><small>Каждые 1,8 с растёт: +1 хп (до 4), крупнее, медленнее и дороже. Бейте сразу.</small></span></li>
+          <li><span class="ic">🪰</span><span><b>Race condition (10)</b><small>Пара мух, связанная пунктиром. Убили одну — у второй 1,2 с, иначе первая воскреснет. Успели — +6 «синхронно».</small></span></li>
+          <li><span class="ic">👻</span><span><b>Гейзенбаг (12)</b><small>5 очков. Рядом с курсором становится почти невидимым — целься чуть издалека.</small></span></li>
+          <li><span class="ic">⭐</span><span><b>Элита (10)</b><small>Часть обычных багов приходит элитными: оранжевое свечение, +1 хп, очки ×2. Чем дальше, тем их больше (до 35%).</small></span></li>
+          <li><span class="ic">🐌</span><span><b>Приманка (3)</b><small>Не трогать: клик снимает 2 очка и рвёт серию. До прода доходит без штрафа.</small></span></li>
+        </ul>
+      </section>
+      <section id="rules-bonuses" class="rules-pane" role="tabpanel" hidden>
+        <p>Бонусы — это не баги: пропустить их не страшно. Нажмите, чтобы сработали.</p>
+        <ul class="rule-list">
+          <li><span class="ic">🐝</span><span><b>Золотой баг (2)</b><small>+5 очков сверх обычных и пауза спавна 2,5 с. Это всё-таки баг: пропуск стоит ½ сердца.</small></span></li>
+          <li><span class="ic">🧊</span><span><b>Code freeze (2)</b><small>Все баги замедляются до 40% на 4 секунды.</small></span></li>
+          <li><span class="ic">💣</span><span><b>Hotfix (2)</b><small>Взрыв убирает всех багов в радиусе. Задевает босса (−5 хп).</small></span></li>
+          <li><span class="ic">🤖</span><span><b>Автотест (3)</b><small>Редкий: не чаще раза в минуту. 6 с бот сам бьёт ближайших к проду багов раз в 0,7 с, босса — вполсилы. Повторный подбор продлевает до 9 с.</small></span></li>
+          <li><span class="ic">🧲</span><span><b>Магнит (3)</b><small>Не чаще раза в 45 с. 5 с все баги летят к курсору и кружат вокруг — выкосите кучу. Приманки и босса не тянет.</small></span></li>
+          <li><span class="ic">🧹</span><span><b>Рефакторинг (4)</b><small>Не чаще раза в 30 с. Чистит нижнюю половину поля, даёт +1 сердце и +10 очков, на 1,5 с останавливает спавн, бьёт босса (−8 хп).</small></span></li>
+        </ul>
+      </section>
+      <section id="rules-bosses" class="rules-pane" role="tabpanel" hidden>
+        <h3>Когда</h3>
+        <p>На 5‑й волне и дальше каждые 4 волны: 9, 13, 17… Пока идёт бой, обычных багов меньше, а события не начинаются. Перк, выпавший на волну босса, предлагается после боя.</p>
+        <h3>Три босса по очереди</h3>
+        <ul class="rule-list">
+          <li><span class="ic">👾</span><span><b>Баг-босс</b><small>Качается и медленно сползает к проду, выпускает миньонов. Закликайте, пока не дополз.</small></span></li>
+          <li><span class="ic">🗿</span><span><b>Легаси-монолит</b><small>Его закрывают 4 вращающихся блока 🧱 по 3 хп. Пока цел хоть один, по телу урона нет — «броня». Бомбы, рефакторинг и автотест сначала ломают блоки.</small></span></li>
+          <li><span class="ic">⏰</span><span><b>Дедлайн</b><small>Не спускается, но над ним тикает таймер: 26 с, у каждого следующего на 2 с меньше (минимум 16). Code freeze его тормозит.</small></span></li>
+        </ul>
+        <h3>Фазы (пороги — засечки на полосе здоровья)</h3>
+        <ul class="rule-list">
+          <li><span class="ic">🟣</span><span><b>Хаос — с 60% хп</b><small>Раз в 2,6 с телепортируется. За 0,65 с до прыжка мигает, а пунктирное кольцо показывает, куда прыгнет — наводитесь заранее.</small></span></li>
+          <li><span class="ic">🔴</span><span><b>Ярость — с 25% хп</b><small>Залп из трёх миньонов, спускается в 1,6 раза быстрее, миньоны чаще. У Дедлайна таймер идёт в 1,5 раза быстрее.</small></span></li>
+          <li><span class="ic">🧱</span><span><b>Монолит в новой фазе</b><small>Возвращает один разбитый блок.</small></span></li>
+        </ul>
+        <h3>Итог боя</h3>
+        <ul class="rule-list">
+          <li><span class="ic">🏆</span><span><b>Победа</b><small>150 очков (+50 за каждого следующего), +1 сердце, все обычные баги на поле устранены.</small></span></li>
+          <li><span class="ic">💥</span><span><b>Прорыв или сорванный дедлайн</b><small>−2 сердца (щит гасит часть).</small></span></li>
+          <li><span class="ic">🛡️</span><span><b>Щит (во время боя)</b><small>+4 заряда: каждый гасит один прорыв. Всего до 8.</small></span></li>
+          <li><span class="ic">🔧</span><span><b>Патч (во время боя)</b><small>+½ сердца, при полных сердцах — +1 заряд щита.</small></span></li>
+          <li><span class="ic">📈</span><span><b>Каждый следующий</b><small>На 10 хп крепче и быстрее спускается.</small></span></li>
+        </ul>
+      </section>
+      <section id="rules-perks" class="rules-pane" role="tabpanel" hidden>
+        <p>С 3‑й волны каждые 2 волны игра встаёт на паузу: выберите 1 улучшение из 3 (клавиши 1–3 или нажатие). Уровни складываются, собранное видно значками слева над прод-линией.</p>
+        <ul class="rule-list">
+          <li><span class="ic">🎯</span><span><b>Снайпер (до 3)</b><small>Радиус клика +35% за уровень, зона видна кольцом у курсора.</small></span></li>
+          <li><span class="ic">🤖</span><span><b>Тест-покрытие (до 3)</b><small>Сразу выпускает автотест; он длится на 50% дольше и выпадает чаще.</small></span></li>
+          <li><span class="ic">🐝</span><span><b>Золотая жила (до 3)</b><small>Золотых багов вдвое больше, бонус за них +2. Один сразу на поле.</small></span></li>
+          <li><span class="ic">🧊</span><span><b>Охлаждение (до 3)</b><small>Все баги медленнее на 10% за уровень, плюс заморозка на 4 с сразу.</small></span></li>
+          <li><span class="ic">🔥</span><span><b>Азарт+ (до 2)</b><small>Множитель серии включается на 2 попадания раньше за уровень.</small></span></li>
+          <li><span class="ic">💣</span><span><b>Сапёрка (до 3)</b><small>Радиус Hotfix +40% за уровень, бомбы чаще. Одна сразу на поле.</small></span></li>
+          <li><span class="ic">🧮</span><span><b>Бонусные очки (до 3)</b><small>+15% очков за каждого устранённого бага за уровень.</small></span></li>
+          <li><span class="ic">❤️</span><span><b>Бэкап (разово)</b><small>+1 сердце. Предлагается, только если не хватает хотя бы сердца.</small></span></li>
+          <li><span class="ic">🛡️</span><span><b>Файрвол (разово)</b><small>Щит на 4 прорыва прямо сейчас.</small></span></li>
+          <li><span class="ic">💸</span><span><b>Технический долг — с подвохом</b><small>+40% очков навсегда, но баги на 15% быстрее.</small></span></li>
+          <li><span class="ic">⏪</span><span><b>Откат — с подвохом</b><small>Убирает всех багов на поле, но стоит сердце. Только если сердец больше одного.</small></span></li>
+        </ul>
+      </section>
+      <section id="rules-events" class="rules-pane" role="tabpanel" hidden>
+        <p>Со 2‑й волны раз в 18–30 секунд случается событие (во время боя с боссом — нет). Над прод-линией виден таймер.</p>
+        <ul class="rule-list">
+          <li><span class="ic">🌧️</span><span><b>Дождь багов</b><small>7 с густой поток лёгких багов.</small></span></li>
+          <li><span class="ic">🐝</span><span><b>Золотая лихорадка</b><small>8 с идут только золотые: богато, но каждый пропущенный стоит ½ сердца.</small></span></li>
+          <li><span class="ic">🧱</span><span><b>Стена багов</b><small>Ровный строй багов во всю ширину.</small></span></li>
+          <li><span class="ic">🚀</span><span><b>Пятничный деплой (с 4‑й)</b><small>10 с прод-линия плавно поднимается на 13% высоты.</small></span></li>
+          <li><span class="ic">👀</span><span><b>Код-ревью</b><small>8 с промахи мимо багов не сбрасывают серию.</small></span></li>
+        </ul>
+      </section>
+      <section id="rules-modes" class="rules-pane" role="tabpanel" hidden>
+        <h3>Обычная игра</h3>
+        <p>Случайная последовательность багов, рекорд — ваш лучший счёт.</p>
+        <h3>📅 Задача дня</h3>
+        <p>Сутки по UTC у всех одна и та же последовательность багов, событий и перков и один мутатор. Играть можно сколько угодно раз — в рейтинг «Сегодня» идёт лучшая попытка.</p>
+        <h3>🗓️ Челлендж недели</h3>
+        <p>То же на всю неделю (с понедельника по UTC), но мутаторов сразу два. Рейтинг — вкладка «Неделя».</p>
+        <ul class="rule-list">
+          <li><span class="ic">⚡</span><span><b>Спринт</b><small>Баги быстрее на 20%.</small></span></li>
+          <li><span class="ic">💔</span><span><b>Хрупкий прод</b><small>Старт с 3 сердцами.</small></span></li>
+          <li><span class="ic">🌪️</span><span><b>Шторм</b><small>События идут одно за другим, с самого начала.</small></span></li>
+          <li><span class="ic">🐝</span><span><b>Золотой день</b><small>Золотых багов втрое больше.</small></span></li>
+          <li><span class="ic">🔥</span><span><b>Горячая серия</b><small>«Азарт» включается на 4 попадания раньше.</small></span></li>
+          <li><span class="ic">⏱️</span><span><b>Призрак</b><small>В челленджах под счётом видно, насколько вы опережаете свою лучшую попытку на той же секунде.</small></span></li>
+        </ul>
+        <h3>Аккаунт</h3>
+        <p>Гостем играть можно, но очки не попадут в рейтинг. После входа копятся устранённые баги и растёт ранг: Стажёр → Джуниор (100) → Мидл (500) → Сеньор (2000) → Тимлид (5000) → Архитектор (15000). Ранги открывают аватары и цвета, ачивки — титулы. Всё это — в кабинете (<kbd>C</kbd>).</p>
+      </section>
     </div>
   </aside>
 
@@ -324,6 +444,7 @@
 
   <script src="game.js"></script>
   <script src="board.js"></script>
+  <script src="rules.js"></script>
   <script src="cabinet.js"></script>
 </body>
 </html>

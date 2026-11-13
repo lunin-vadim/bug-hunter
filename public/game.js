@@ -204,7 +204,6 @@ const el = {
   best: document.getElementById('hud-best'),
   title: document.getElementById('ov-title'),
   text: document.getElementById('ov-text'),
-  help: document.getElementById('ov-help'),
   stats: document.getElementById('ov-stats'),
   start: document.getElementById('btn-start'),
   sound: document.getElementById('btn-sound'),
