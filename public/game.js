@@ -22,6 +22,11 @@ const SPAWN_START_MS = 1700;
 const SPAWN_DECAY_PER_WAVE = 0.85; // интервал спавна умножается на это каждую волну
 const SPAWN_MIN_MS = 420;
 const REFACTOR_COOLDOWN_MS = 30000;    // Рефакторинг не чаще, чем раз в это время
+// «Магнит»: на время все баги (не приманки и не босс) летят к курсору и кружат вокруг него
+const MAGNET_MS = 5000;
+const MAGNET_COOLDOWN_MS = 45000;      // не чаще, чем раз в это время, и не больше одного на поле
+const MAGNET_PULL = 340;               // скорость притяжения, px/с (в масштабе S)
+const MAGNET_RING = 34;                // радиус кольца, по которому баги кружат у курсора
 const REFACTOR_CLEAR_ZONE = 0.5;       // Рефакторинг чистит нижнюю часть поля (доля высоты до прода), а не весь экран
 // «Автотест»: бонус-бот сам устраняет багов, пока не закончится время (комбо и «Азарт» не трогает)
 const AUTOTEST_MS = 6000;
@@ -143,6 +148,7 @@ const BUG_KINDS = [
   { emoji: '🧊', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'freeze', minWave: 2 },
   { emoji: '💣', points: 0, hp: 1, size: 30, minSpeed: 40, maxSpeed: 60, weight: 0.7, behavior: 'bomb', minWave: 2 },
   { emoji: '🤖', points: 0, hp: 1, size: 40, minSpeed: 38, maxSpeed: 52, weight: 0.4, behavior: 'autotest', minWave: 3 },
+  { emoji: '🧲', points: 0, hp: 1, size: 36, minSpeed: 40, maxSpeed: 55, weight: 0.35, behavior: 'magnet', minWave: 3 },
   // новые враги, открываются с волнами
   { emoji: '🦟', points: 3, hp: 1, size: 22, minSpeed: 85, maxSpeed: 120, weight: 2, behavior: 'normal', ampMul: 3, minWave: 4, glow: 'rgba(255, 255, 255, 0.55)' },
   { emoji: '🕷️', points: 5, hp: 1, size: 30, minSpeed: 30, maxSpeed: 45, weight: 1.6, behavior: 'dasher', minWave: 6, glow: 'rgba(255, 255, 255, 0.6)' },
@@ -174,6 +180,7 @@ const HINTS = {
   '👻': ['Гейзенбаг', 'Исчезает, когда на него смотришь: целься чуть издалека'],
   '🛡️': ['Щит', 'Гасит четыре прорыва'],
   '🔧': ['Патч', 'Чинит полсердца'],
+  '🧲': ['Магнит', '5 с все баги летят к курсору: собери их в кучу и выкоси. Приманки не притягивает'],
   '👾': ['Баг-босс', 'Закликай до прода. С 60% хп телепортируется, с 25% звереет'],
   '🗿': ['Легаси-монолит', 'Сначала разбей вращающиеся блоки 🧱 — пока они целы, монолит неуязвим'],
   '⏰': ['Дедлайн', 'Не спускается, но тикает таймер: не успел — минус два сердца'],
@@ -227,6 +234,7 @@ const el = {
 let W = 0, H = 0, DPR = 1, S = 1; // S — масштаб размеров/скоростей относительно окна
 let boss = null, bossesDefeated = 0, bossesMet = 0, shield = 0;
 let ev = null, nextEventAt = EVENT_FIRST_AT_MS, lastEvent = null;
+let magnetLeft = 0, lastMagnetAt = -Infinity;
 let autotestLeft = 0, autotestTimer = 0, autotestShots = [], autotestTick = 0, autotestSpan = AUTOTEST_MS, lastAutotestAt = -Infinity;
 let botFinishing = false; // true, пока выстрел бота наносит урон боссу: так считаем «добил автотестом»
 let perks = {}, perkPending = false, perkOpen = false, perkChoosing = false, perkChoices = [];
@@ -362,6 +370,7 @@ const sfx = {
   rankUp: () => { [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, 0.22, 'triangle', 0.12, null, i * 0.1)); tone(131, 0.7, 'sawtooth', 0.08, 65, 0.1); },
   autotest: () => { [330, 440, 554, 660].forEach((f, i) => tone(f, 0.08, 'square', 0.07, null, i * 0.05)); },
   zap: () => tone(1100, 0.06, 'square', 0.05, 500),
+  magnet: () => { tone(180, 0.6, 'sine', 0.12, 520); tone(90, 0.6, 'triangle', 0.08, 260, 0.05); },
   rareSpawn: () => { [784, 988, 1175].forEach((f, i) => tone(f, 0.18, 'triangle', 0.05, null, i * 0.09)); },
   shieldUp: () => { tone(660, 0.1, 'triangle', 0.1); tone(990, 0.16, 'triangle', 0.1, null, 0.07); },
   shieldHit: () => tone(880, 0.12, 'triangle', 0.12, 440),
@@ -420,6 +429,7 @@ const HAPTICS = {
   patch: 20,
   autotest: 25,
   zap: 6,
+  magnet: [20, 30, 20, 30, 40],
   rareSpawn: [15, 40, 25],
   rankUp: [30, 40, 30, 40, 90],
 };
@@ -614,8 +624,9 @@ function autotestReady() {
 function pickKind() {
   const refactorReady = elapsed - lastRefactorAt >= REFACTOR_COOLDOWN_MS;
   const autotestOk = autotestReady();
+  const magnetOk = magnetLeft <= 0 && elapsed - lastMagnetAt >= MAGNET_COOLDOWN_MS && !bugs.some((b) => b.behavior === 'magnet');
   const pool = BUG_KINDS
-    .filter((k) => wave >= (k.minWave || 1) && (k.behavior !== 'refactor' || refactorReady) && (k.behavior !== 'autotest' || autotestOk))
+    .filter((k) => wave >= (k.minWave || 1) && (k.behavior !== 'refactor' || refactorReady) && (k.behavior !== 'autotest' || autotestOk) && (k.behavior !== 'magnet' || magnetOk))
     .map((k) => ({ k, w: (k.weight / (1 + (k.fade || 0) * (wave - 1))) * perkWeight(k) }));
   const total = pool.reduce((s, p) => s + p.w, 0);
   let r = rng.spawn() * total;
@@ -630,6 +641,7 @@ function spawnBug(kind, x, y, canSplit = true, speedMul = 1) {
   const inWave = Math.max(0, Math.min(1, (elapsed - (nextWaveAt - WAVE_EVERY_MS)) / WAVE_EVERY_MS));
   const speedBoost = Math.min(SPEED_CAP, 1 + (wave - 1) * SPEED_STEP_PER_WAVE + inWave * SPEED_STEP_IN_WAVE) * 0.9 ** perkLv('slow') * (perkLv('debt') ? 1.15 : 1) * (hasMod('fast') ? 1.2 : 1);
   if (kind.behavior === 'refactor') { lastRefactorAt = elapsed; }
+  if (kind.behavior === 'magnet') { lastMagnetAt = elapsed; }
   if (kind.behavior === 'autotest') { lastAutotestAt = elapsed; sfx.rareSpawn(); } // редкий гость: даём о себе знать
   bugs.push({
     id: nextId++,
@@ -755,7 +767,7 @@ function resetGame() {
   bugs = []; splats = []; popups = []; particles = [];
   score = 0; combo = 0; bestCombo = 0; kills = 0; lives = hasMod('hearts') ? 6 : START_LIVES;
   elapsed = 0; spawnTimer = 0; freezeLeft = 0; boostLeft = 0; wave = 1; nextWaveAt = WAVE_EVERY_MS; lastRefactorAt = -Infinity;
-  slowLeft = 0; countdownLeft = 0; sniperPulseAt = 0;
+  slowLeft = 0; countdownLeft = 0; sniperPulseAt = 0; magnetLeft = 0; lastMagnetAt = -Infinity;
   boss = null; bossesDefeated = 0; bossesMet = 0; shield = 0;
   ev = null; nextEventAt = hasMod('storm') ? 12000 : EVENT_FIRST_AT_MS; lastEvent = null; prodLift = 0;
   autotestLeft = 0; autotestTimer = 0; autotestShots = []; autotestTick = 0; autotestSpan = AUTOTEST_MS; lastAutotestAt = -Infinity;
@@ -971,6 +983,33 @@ function updateAutotest(ms) {
     autotestShot();
   }
   if (autotestLeft <= 0) { autotestTimer = 0; showBanner('🤖 Автотест завершён', '#9aa4b5'); }
+}
+
+function activateMagnet(b) {
+  magnetLeft = MAGNET_MS;
+  burst(b.x, b.y, '#ff6b81', 16);
+  sfx.magnet();
+  showBanner('🧲 Магнит: баги летят к курсору!', '#ff6b81');
+}
+
+/** Куда тянет магнит: курсор (на телефоне — последнее касание), но не ниже прод-линии */
+function magnetPoint() {
+  const x = ptr.inside || !ptr.mouse ? ptr.x || W / 2 : W / 2;
+  const y = ptr.inside || !ptr.mouse ? ptr.y || H * 0.4 : H * 0.4;
+  return { x: Math.max(20 * S, Math.min(W - 20 * S, x)), y: Math.max(60 * S, Math.min(prodY() - 70 * S, y)) };
+}
+
+/** Баг под магнитом: летит к своей точке на кольце вокруг курсора, кольцо медленно вращается */
+function pullBug(b, dt) {
+  const m = magnetPoint();
+  const a = b.id * 2.4 + fxClock / 600;
+  const r = (MAGNET_RING + (b.id % 3) * 16) * S;
+  const dx = m.x + Math.cos(a) * r - b.x;
+  const dy = m.y + Math.sin(a) * r - b.y;
+  const d = Math.hypot(dx, dy);
+  const step = Math.min(d, MAGNET_PULL * S * dt);
+  if (d > 0) { b.x += (dx / d) * step; b.y += (dy / d) * step; }
+  b.magnetized = true;
 }
 
 function activateFreeze(b) {
@@ -1328,6 +1367,9 @@ function handleClick(px, py) {
   } else if (target.behavior === 'autotest') {
     bugs = bugs.filter((x) => x.id !== target.id);
     activateAutotest(target);
+  } else if (target.behavior === 'magnet') {
+    bugs = bugs.filter((x) => x.id !== target.id);
+    activateMagnet(target);
   } else if (target.behavior === 'freeze') {
     bugs = bugs.filter((x) => x.id !== target.id);
     activateFreeze(target);
@@ -1414,12 +1456,18 @@ function update(dt) {
   }
 
   const line = prodY();
+  magnetLeft = Math.max(0, magnetLeft - ms);
   for (const b of bugs.slice()) {
-    const dash = b.behavior === 'dasher' && b.y > H * DASH_FROM ? DASH_MUL : 1;
-    b.y += b.speed * dt * pace * dash;
     updateSpecialBug(b, ms * pace);
     b.phase += dt * 2.2 * pace;
-    b.x = b.baseX + Math.sin(b.phase) * b.amp;
+    if (magnetLeft > 0 && THREATS.has(b.behavior)) {
+      pullBug(b, dt * pace);
+    } else {
+      if (b.magnetized) { b.magnetized = false; b.baseX = b.x - Math.sin(b.phase) * b.amp; } // без рывка после магнита
+      const dash = b.behavior === 'dasher' && b.y > H * DASH_FROM ? DASH_MUL : 1;
+      b.y += b.speed * dt * pace * dash;
+      b.x = b.baseX + Math.sin(b.phase) * b.amp;
+    }
     b.x = Math.max(b.size * 0.5, Math.min(W - b.size * 0.5, b.x));
     if (b.y >= line) {
       bugs = bugs.filter((x) => x.id !== b.id);
@@ -1613,7 +1661,9 @@ function drawBugs() {
     ctx.save();
     ctx.translate(b.x, b.y);
     ctx.rotate(wob);
-    if (b.behavior === 'heisen') { // гейзенбаг: чем ближе курсор, тем прозрачнее
+    if (b.behavior === 'heisen' && b.magnetized) { // под магнитом прятаться некуда
+      ctx.globalAlpha = 0.7;
+    } else if (b.behavior === 'heisen') { // гейзенбаг: чем ближе курсор, тем прозрачнее
       const d = ptr.inside ? Math.hypot(ptr.x - b.x, ptr.y - b.y) : Infinity;
       ctx.globalAlpha = d < HEISEN_RADIUS * S ? 0.08 + 0.5 * (d / (HEISEN_RADIUS * S)) ** 2 : 0.85;
     }
@@ -1629,6 +1679,9 @@ function drawBugs() {
     } else if (b.behavior === 'dasher' && b.y > H * DASH_FROM) {
       ctx.shadowColor = '#ff5470';
       ctx.shadowBlur = 16;
+    } else if (b.behavior === 'magnet') {
+      ctx.shadowColor = '#ff6b81';
+      ctx.shadowBlur = 18;
     } else if (b.behavior === 'autotest') {
       ctx.shadowColor = '#c792ea';
       ctx.shadowBlur = 18;
@@ -1760,6 +1813,28 @@ function drawAutotest() {
   ctx.fillRect(x - bw / 2, y + 26 * S, bw * Math.min(1, autotestLeft / autotestSpan), 4 * S);
 }
 
+/** Поле магнита: пульсирующие кольца у точки притяжения и таймер над прод-линией */
+function drawMagnet() {
+  if (magnetLeft <= 0 || phase !== 'playing') { return; }
+  const m = magnetPoint();
+  const t = fxClock / 1000;
+  ctx.save();
+  ctx.lineWidth = 2 * S;
+  for (let i = 0; i < 3; i++) { // кольца сходятся к центру: видно, куда тянет
+    const k = 1 - ((t * 0.8 + i / 3) % 1);
+    ctx.strokeStyle = `rgba(255, 107, 129, ${0.5 * (1 - k)})`;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, (MAGNET_RING + 90 * k) * S, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 ${Math.round(14 * S)}px ${FONT_UI}`;
+  ctx.fillStyle = '#ff6b81';
+  ctx.fillText(`🧲 Магнит · ${Math.ceil(magnetLeft / 1000)} с`, W / 2, prodY() - (ev ? 44 : 20) * S);
+  ctx.restore();
+}
+
 function drawEventBar() {
   if (!ev) { return; }
   const def = EVENTS[ev.type];
@@ -1800,6 +1875,7 @@ function render() {
   drawAutotest();
   drawEffects();
   drawSlowTint();
+  drawMagnet();
   drawFever();
   ctx.restore();
   drawSniperRing();
