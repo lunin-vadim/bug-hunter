@@ -76,31 +76,17 @@
         <img class="logo" src="favicon.svg" alt="" width="44" height="44">
         <div>
           <h1 id="ov-title">Bug Hunter</h1>
-          <p id="ov-text">Баги ползут к продакшену. Кликайте по ним, пока они не пересекли красную линию.</p>
+          <p id="ov-text">Кликайте по багам, пока они не доползли до продакшена.</p>
         </div>
       </header>
 
-      <details id="ov-help" class="help">
-        <summary>Кто есть кто</summary>
-        <ul>
-          <li><span class="ic">🐛 🐞 🪲</span><span>Обычные баги<small>у 🪲 два хп</small></span></li>
-          <li><span class="ic">🪳</span><span>Делится<small>на смерти — на мелких</small></span></li>
-          <li><span class="ic">🐝</span><span>Золотой<small>бонус очков</small></span></li>
-          <li><span class="ic">🐌</span><span>Приманка<small>клик снимает очки</small></span></li>
-          <li><span class="ic">🧹</span><span>Рефакторинг<small>чистит нижнюю половину, +1 жизнь</small></span></li>
-          <li><span class="ic">🧊</span><span>Code freeze<small>баги медленнее на 4 с</small></span></li>
-          <li><span class="ic">💣</span><span>Hotfix<small>взрыв вокруг</small></span></li>
-          <li><span class="ic">🤖</span><span>Автотест<small>редкий: 6 с сам бьёт ближних багов</small></span></li>
-          <li><span class="ic">👾 🗿 ⏰</span><span>Боссы<small>5-я волна и каждая 4-я, по очереди: баг-босс, монолит в броне, дедлайн с таймером</small></span></li>
-          <li><span class="ic">🛡️ 🔧</span><span>Укрепления<small>падают во время босса: щит и патч</small></span></li>
-          <li><span class="ic">🎯 🧮</span><span>Перки<small>каждые 2 волны: выбери 1 из 3 улучшений</small></span></li>
-          <li><span class="ic">🦟 🕷️ 🦂</span><span>Новые жуки<small>приходят с волнами: зигзаг, рывок, броня</small></span></li>
-          <li><span class="ic">🦗 🐜 🦠</span><span>Поздние волны<small>прыгает вбок · возвращается · растёт</small></span></li>
-          <li><span class="ic">🪰 👻</span><span>Race и гейзенбаг<small>пару бей вместе · у курсора исчезает</small></span></li>
-        </ul>
-      </details>
-
       <p id="ov-stats" class="stats"></p>
+
+      <div class="actions">
+        <button id="btn-start" class="primary">Играть</button>
+        <button id="btn-board" class="secondary">Рейтинг</button>
+      </div>
+      <p id="save-status" class="stats small" hidden></p>
 
       <section id="summary" class="summary" hidden>
         <canvas id="summary-chart" class="summary-chart" aria-label="Очки по волнам" role="img"></canvas>
@@ -109,7 +95,25 @@
         <button id="btn-share" class="secondary wide" type="button">Поделиться результатом</button>
       </section>
 
-      <div id="auth" class="auth">
+      <!-- режимы: плитка целиком — кнопка запуска -->
+      <div class="modes">
+        <button id="daily" class="mode" type="button" hidden>
+          <span class="mode-kicker">📅 Задача дня</span>
+          <b class="mode-mods"><span id="daily-mod-ic"></span> <span id="daily-mod-name"></span></b>
+          <small id="daily-mod-desc" class="mode-desc"></small>
+          <small class="mode-meta"><span id="daily-best"></span><span id="daily-left"></span></small>
+        </button>
+        <button id="weekly" class="mode weekly" type="button" hidden>
+          <span class="mode-kicker">🗓️ Неделя <span id="weekly-num"></span></span>
+          <b id="weekly-mods" class="mode-mods"></b>
+          <small id="weekly-desc" class="mode-desc"></small>
+          <small class="mode-meta"><span id="weekly-best"></span><span id="weekly-left"></span></small>
+        </button>
+      </div>
+
+      <!-- гость: одна строка, форма входа раскрывается по нажатию -->
+      <details id="auth" class="auth">
+        <summary><span>Играете как гость: очки не попадут в рейтинг</span><b>Войти</b></summary>
         <form id="auth-form" autocomplete="on">
           <input id="auth-user" name="username" placeholder="Имя" maxlength="20" autocomplete="username">
           <input id="auth-pass" name="password" type="password" placeholder="Пароль" maxlength="72" autocomplete="current-password">
@@ -119,59 +123,49 @@
           </div>
         </form>
         <p id="auth-error" class="error" hidden></p>
-        <p class="hint">Без входа можно играть, но очки не попадут в рейтинг.</p>
-      </div>
+      </details>
 
       <div id="me" class="me" hidden>
-        <div class="me-top">
-          <span id="me-avatar" class="avatar" aria-hidden="true"></span>
-          <div class="me-info">
-            <span class="me-name"><span id="me-badge"></span><b id="me-name"></b> <span id="me-title" class="chip"></span></span>
-            <button id="btn-logout" class="link">Выйти</button>
+        <span id="me-avatar" class="avatar" aria-hidden="true"></span>
+        <div class="me-info">
+          <span class="me-name"><span id="me-badge"></span><b id="me-name"></b> <span id="me-title" class="chip"></span></span>
+          <small class="me-stats">убито <b id="me-kills">0</b> · рекорд <b id="me-best">0</b> · партий <b id="me-games">0</b> · <button id="btn-logout" class="link">выйти</button></small>
+        </div>
+        <button id="btn-cabinet" class="secondary">Кабинет</button>
+      </div>
+
+      <!-- второстепенное: открывается по нажатию -->
+      <div class="card-foot">
+        <details id="ov-help" class="foot-item" name="foot">
+          <summary>Как играть</summary>
+          <div class="foot-panel">
+            <ul>
+              <li><span class="ic">🐛 🐞 🪲</span><span>Обычные баги<small>у 🪲 два хп</small></span></li>
+              <li><span class="ic">🪳</span><span>Делится<small>на смерти — на мелких</small></span></li>
+              <li><span class="ic">🐝</span><span>Золотой<small>бонус очков</small></span></li>
+              <li><span class="ic">🐌</span><span>Приманка<small>клик снимает очки</small></span></li>
+              <li><span class="ic">🧹</span><span>Рефакторинг<small>чистит нижнюю половину, +1 жизнь</small></span></li>
+              <li><span class="ic">🧊</span><span>Code freeze<small>баги медленнее на 4 с</small></span></li>
+              <li><span class="ic">💣</span><span>Hotfix<small>взрыв вокруг</small></span></li>
+              <li><span class="ic">🤖</span><span>Автотест<small>редкий: 6 с сам бьёт ближних багов</small></span></li>
+              <li><span class="ic">👾 🗿 ⏰</span><span>Боссы<small>5-я волна и каждая 4-я, по очереди: баг-босс, монолит в броне, дедлайн с таймером</small></span></li>
+              <li><span class="ic">🛡️ 🔧</span><span>Укрепления<small>падают во время босса: щит и патч</small></span></li>
+              <li><span class="ic">🎯 🧮</span><span>Перки<small>каждые 2 волны: выбери 1 из 3 улучшений</small></span></li>
+              <li><span class="ic">🦟 🕷️ 🦂</span><span>Новые жуки<small>приходят с волнами: зигзаг, рывок, броня</small></span></li>
+              <li><span class="ic">🦗 🐜 🦠</span><span>Поздние волны<small>прыгает вбок · возвращается · растёт</small></span></li>
+              <li><span class="ic">🪰 👻</span><span>Race и гейзенбаг<small>пару бей вместе · у курсора исчезает</small></span></li>
+            </ul>
+            <p class="hint keys"><kbd>Space</kbd> старт · <kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>F</kbd> экран · <kbd>M</kbd> звук · <kbd>N</kbd> музыка · <kbd>L</kbd> рейтинг</p>
           </div>
-          <button id="btn-cabinet" class="secondary">Кабинет</button>
-        </div>
-        <dl class="me-stats">
-          <div><dt>партий</dt><dd id="me-games">0</dd></div>
-          <div><dt>рекорд</dt><dd id="me-best">0</dd></div>
-          <div><dt>убито</dt><dd id="me-kills">0</dd></div>
-        </dl>
+        </details>
+        <details id="audio" class="foot-item" name="foot">
+          <summary>Громкость</summary>
+          <div class="foot-panel">
+            <label class="vol"><span>Эффекты</span><input id="vol-sfx" type="range" min="0" max="100" step="5" aria-label="Громкость эффектов"><output id="vol-sfx-out">100%</output></label>
+            <label class="vol"><span>Музыка</span><input id="vol-music" type="range" min="0" max="100" step="5" aria-label="Громкость музыки"><output id="vol-music-out">100%</output></label>
+          </div>
+        </details>
       </div>
-
-      <div id="daily" class="daily" hidden>
-        <div class="daily-cal" aria-hidden="true"><small id="daily-month"></small><b id="daily-day"></b></div>
-        <div class="daily-body">
-          <span class="daily-kicker">Задача дня</span>
-          <p class="daily-mod"><span id="daily-mod-ic"></span> <b id="daily-mod-name"></b><span class="daily-mod-desc"> — <span id="daily-mod-desc"></span></span></p>
-          <small id="daily-best"></small>
-          <small id="daily-left" class="daily-left"></small>
-        </div>
-        <button id="btn-daily" class="secondary daily-btn">Играть задачу дня</button>
-      </div>
-
-      <div id="weekly" class="daily weekly" hidden>
-        <div class="daily-cal" aria-hidden="true"><small>нед</small><b id="weekly-num"></b></div>
-        <div class="daily-body">
-          <span class="daily-kicker">Челлендж недели · два мутатора</span>
-          <p class="daily-mod"><b id="weekly-mods"></b></p>
-          <small id="weekly-desc"></small>
-          <small id="weekly-best"></small>
-          <small id="weekly-left" class="daily-left"></small>
-        </div>
-        <button id="btn-weekly" class="secondary daily-btn">Играть челлендж недели</button>
-      </div>
-
-      <p id="save-status" class="stats small" hidden></p>
-      <div class="actions">
-        <button id="btn-start" class="primary">Играть</button>
-        <button id="btn-board" class="secondary">Рейтинг</button>
-      </div>
-      <details id="audio" class="audio">
-        <summary>Громкость</summary>
-        <label class="vol"><span>Эффекты</span><input id="vol-sfx" type="range" min="0" max="100" step="5" aria-label="Громкость эффектов"><output id="vol-sfx-out">100%</output></label>
-        <label class="vol"><span>Музыка</span><input id="vol-music" type="range" min="0" max="100" step="5" aria-label="Громкость музыки"><output id="vol-music-out">100%</output></label>
-      </details>
-      <p class="hint keys"><kbd>Space</kbd> старт · <kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>F</kbd> экран · <kbd>M</kbd> звук · <kbd>N</kbd> музыка</p>
     </div>
   </div>
 

@@ -803,7 +803,6 @@ function endGame() {
   el.text.textContent = ch
     ? `${ch.mods.map((m) => `${m.icon} ${m.name}`).join(' + ')}: релиз сорван, баги добрались до продакшена.`
     : 'Релиз сорван: баги добрались до продакшена.';
-  el.help.hidden = true;
   el.stats.textContent = `Очки: ${score} · Убито: ${kills} · Лучшее комбо: ${bestCombo} · Волна: ${wave} · ${ch ? `Рекорд ${ch.short}` : 'Рекорд'}: ${ch ? challengeBest(ch) : best}`;
   el.start.textContent = 'Ещё раз';
   run.waveScores.push(score);
@@ -820,7 +819,6 @@ function setPaused(p) {
     phase = 'paused';
     el.title.textContent = 'Пауза';
     el.text.textContent = 'Игра приостановлена.';
-    el.help.hidden = true;
     el.stats.textContent = '';
     summaryBox.hidden = true;
     el.start.textContent = 'Продолжить';
@@ -2135,41 +2133,34 @@ function renderChallenges() {
   const dailyBox = document.getElementById('daily');
   dailyBox.hidden = !dailyInfo || hide;
   if (dailyInfo) {
-    const d = new Date(`${dailyInfo.date}T00:00:00Z`);
-    document.getElementById('daily-month').textContent = d.toLocaleDateString('ru-RU', { month: 'short', timeZone: 'UTC' }).replace('.', '');
-    document.getElementById('daily-day').textContent = d.getUTCDate();
     const m = dailyInfo.modifier;
     document.getElementById('daily-mod-ic').textContent = m.icon;
     document.getElementById('daily-mod-name').textContent = m.name;
     document.getElementById('daily-mod-desc').textContent = m.desc;
     const bestD = dailyBestToday();
-    document.getElementById('daily-best').textContent = bestD ? `Лучший сегодня: ${bestD}` : 'Сегодня ещё не пробовали';
-    document.getElementById('daily-left').textContent = `Новая через ${leftText(Date.parse(`${dailyInfo.date}T00:00:00Z`) + 86400000 - Date.now())}`;
-    document.getElementById('btn-daily').textContent = bestD ? 'Побить свой результат' : 'Играть задачу дня';
+    document.getElementById('daily-best').textContent = bestD ? `лучший ${bestD}` : 'не играли';
+    document.getElementById('daily-left').textContent = `новая через ${leftText(Date.parse(`${dailyInfo.date}T00:00:00Z`) + 86400000 - Date.now())}`;
   }
   const weeklyBox = document.getElementById('weekly');
   weeklyBox.hidden = !weeklyInfo || hide;
   if (weeklyInfo) {
-    document.getElementById('weekly-num').textContent = weeklyInfo.week.split('-W')[1].replace(/^0/, '');
+    document.getElementById('weekly-num').textContent = `№${weeklyInfo.week.split('-W')[1].replace(/^0/, '')}`;
     const [a, b] = weeklyInfo.modifiers;
     document.getElementById('weekly-mods').textContent = `${a.icon} ${a.name} + ${b.icon} ${b.name}`;
     document.getElementById('weekly-desc').textContent = `${a.desc}; ${b.desc.charAt(0).toLowerCase()}${b.desc.slice(1)}`;
+    weeklyBox.title = `Челлендж недели: ${a.name} + ${b.name}`;
     const bestW = challengeBest(challengeOf('weekly'));
-    document.getElementById('weekly-best').textContent = bestW ? `Лучший за неделю: ${bestW}` : 'На этой неделе ещё не пробовали';
-    document.getElementById('weekly-left').textContent = `До конца недели ${leftText(weeklyInfo.endsAt - Date.now())}`;
-    document.getElementById('btn-weekly').textContent = bestW ? 'Побить недельный результат' : 'Играть челлендж недели';
+    document.getElementById('weekly-best').textContent = bestW ? `лучший ${bestW}` : 'не играли';
+    document.getElementById('weekly-left').textContent = `до конца ${leftText(weeklyInfo.endsAt - Date.now())}`;
   }
 }
 
-document.getElementById('btn-daily')?.addEventListener('click', () => { if (phase !== 'playing') { startGame('daily'); } });
-document.getElementById('btn-weekly')?.addEventListener('click', () => { if (phase !== 'playing') { startGame('weekly'); } });
+// плитки режимов целиком — кнопки запуска
+document.getElementById('daily').addEventListener('click', () => { if (phase !== 'playing') { startGame('daily'); } });
+document.getElementById('weekly').addEventListener('click', () => { if (phase !== 'playing') { startGame('weekly'); } });
 
 async function submitResult(finalScore, finalKills, durationMs) {
-  if (!currentUser) {
-    el.saveStatus.textContent = 'Войдите, чтобы попасть в рейтинг';
-    el.saveStatus.hidden = false;
-    return;
-  }
+  if (!currentUser) { return; } // гостю об этом говорит строка «Играете как гость» со входом
   el.saveStatus.textContent = 'Сохраняю результат…';
   el.saveStatus.hidden = false;
   try {
