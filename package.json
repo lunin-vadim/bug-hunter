@@ -11,7 +11,8 @@
     "test": "node --test test/*.test.js",
     "db:start": "bash scripts/db-start.sh",
     "db:stop": "bash scripts/db-stop.sh",
-    "db:backup": "bash scripts/backup.sh"
+    "db:backup": "bash scripts/backup.sh",
+    "db:fetch-backup": "bash scripts/fetch-backup.sh"
   },
   "engines": {
     "node": "22.x"

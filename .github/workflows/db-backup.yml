@@ -1,0 +1,63 @@
+# Ежедневный бэкап базы (у Prisma Postgres Free автоматических бэкапов нет).
+# Репозиторий публичный: артефакт может скачать любой пользователь GitHub, а в дампе хеши паролей,
+# поэтому дамп шифруется (AES-256, ключ из пароля через PBKDF2) до загрузки. Без BACKUP_PASSPHRASE файл бесполезен.
+# Секреты: DIRECT_URL — прямая строка Prisma (db.prisma.io, не pooled), BACKUP_PASSPHRASE — длинный случайный пароль.
+# Расшифровка и скачивание свежего бэкапа: npm run db:fetch-backup (см. README).
+name: DB backup
+
+on:
+  schedule:
+    - cron: '17 2 * * *' # каждый день в 02:17 UTC (не ровно в час: в это время у GitHub меньше очередь)
+  workflow_dispatch: # ручной запуск: Actions → DB backup → Run workflow, или gh workflow run db-backup.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      PG_BIN: /usr/lib/postgresql/17/bin # pg_dump не может быть старше сервера (Prisma Postgres 17)
+    steps:
+      - name: Check secrets
+        run: |
+          [ -n "$DIRECT_URL" ] || { echo "::error::Нет секрета DIRECT_URL"; exit 1; }
+          [ "${#BACKUP_PASSPHRASE}" -ge 20 ] || { echo "::error::Секрет BACKUP_PASSPHRASE пуст или короче 20 символов"; exit 1; }
+
+      - name: Install pg_dump 17
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: Dump, encrypt and verify
+        run: |
+          set -euo pipefail
+          umask 077
+          file="bug-hunter-$(date -u +%Y%m%d-%H%M%S).dump.enc"
+          # пароль передаётся через дескриптор, а не аргументом: так он не виден в списке процессов
+          "$PG_BIN/pg_dump" --format=custom --no-owner --no-acl "$DIRECT_URL" \
+            | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass fd:3 -out "$file" 3<<<"$BACKUP_PASSPHRASE"
+          # бэкап, который нельзя восстановить, хуже, чем никакой: расшифровываем и читаем оглавление
+          tables=$(openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass fd:3 -in "$file" 3<<<"$BACKUP_PASSPHRASE" \
+            | "$PG_BIN/pg_restore" --list | grep -c ' TABLE DATA ' || true)
+          [ "$tables" -ge 3 ] || { echo "::error::В дампе $tables таблиц с данными — ожидалось хотя бы 3 (users, games, user_achievements)"; exit 1; }
+          echo "FILE=$file" >> "$GITHUB_ENV"
+          echo "### Бэкап готов: \`$file\` ($(du -h "$file" | cut -f1), таблиц с данными: $tables)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload encrypted dump
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ env.FILE }}
+          archive: false # один зашифрованный файл: имя артефакта = имя файла
+          compression-level: 0 # зашифрованное не сжимается
+          retention-days: 30
+          if-no-files-found: error
